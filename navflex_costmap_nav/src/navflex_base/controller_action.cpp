@@ -64,12 +64,18 @@ void ControllerAction::start(const GoalHandlePtr& goal_handle,
           const auto& poses = goal_handle->get_goal()->path.poses;
           goal_pose_ = poses.empty() ? geometry_msgs::msg::PoseStamped() : poses.back();
           // Store new goal handle; runImpl() will pick it up each loop tick.
-          // NOTE: do NOT write active_handle = goal_handle here.
-          // That would race with the runImpl() thread which holds a const-ref
-          // to slot.goal_handle.  Communicate via pending_goal_handle_ instead.
           pending_goal_handle_ = goal_handle;
           // Capture old handle; abort() is called after releasing all locks below.
           old_handle_to_abort = active_handle;
+          // Update the slot's goal_handle to the new handle NOW (while both
+          // slot_map_mtx_ and goal_mtx_ are held).  This is safe because
+          // runImpl() copies slot.goal_handle into a local `current_handle` at
+          // the very top of the function and never reads the parameter again.
+          // Without this update, slot.goal_handle remains the aborted old handle,
+          // so the next replanning cycle sees is_active()==false, falls through
+          // to NavflexActionBase::start(), calls cancel() on the running execution,
+          // and publishes a zero-velocity command before doing a full restart.
+          active_handle = goal_handle;
           RCLCPP_INFO(rclcpp::get_logger(name_),
                       "[ControllerAction] Preempt: new goal_handle %p queued in slot %d",
                       goal_handle.get(), slot_id);

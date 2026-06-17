@@ -44,6 +44,15 @@ install(DIRECTORY launch
   DESTINATION share/${PROJECT_NAME}
 )
 
+install(DIRECTORY maps
+  DESTINATION share/${PROJECT_NAME}
+)
+
+install(DIRECTORY rviz
+  DESTINATION share/${PROJECT_NAME}
+)
+
+
 # 测试
 if(BUILD_TESTING)
   find_package(ament_lint_auto REQUIRED)
