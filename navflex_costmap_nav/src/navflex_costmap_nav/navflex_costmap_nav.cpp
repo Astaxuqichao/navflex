@@ -10,7 +10,7 @@ namespace navflex_costmap_nav
     CostmapNavNode::CostmapNavNode(const rclcpp::NodeOptions &options)
         : nav2_util::LifecycleNode("navflex_costmap_nav", "", options)
     {
-        RCLCPP_INFO(get_logger(), "CostmapNavNode created.");
+        RCLCPP_INFO(get_logger(), "[Navflex] CostmapNavNode created");
     }
 
     CostmapNavNode::~CostmapNavNode()
@@ -32,7 +32,7 @@ namespace navflex_costmap_nav
     rclcpp_lifecycle::node_interfaces::LifecycleNodeInterface::CallbackReturn
     CostmapNavNode::on_configure(const rclcpp_lifecycle::State &)
     {
-        RCLCPP_INFO(get_logger(), "Configuring costmaps...");
+        RCLCPP_INFO(get_logger(), "[Navflex] configuring costmaps and action servers");
 
         auto node = shared_from_this();
         double tf_timeout_s;
@@ -82,6 +82,11 @@ namespace navflex_costmap_nav
         behavior_server_thread_ =
             std::make_unique<nav2_util::NodeThread>(behavior_server_);
 
+        RCLCPP_INFO(get_logger(),
+                    "[Navflex] configured: global_frame=%s robot_frame=%s odom_topic=%s",
+                    global_frame_.c_str(), robot_frame_.c_str(),
+                    node->get_parameter("odom_topic").as_string().c_str());
+
         return rclcpp_lifecycle::node_interfaces::LifecycleNodeInterface::
             CallbackReturn::SUCCESS;
     }
@@ -110,7 +115,7 @@ namespace navflex_costmap_nav
           std::bind(&CostmapNavNode::checkPathCallback, this,
             std::placeholders::_1, std::placeholders::_2));
 
-        RCLCPP_INFO(get_logger(), "CostmapNavNode activated.");
+        RCLCPP_INFO(get_logger(), "[Navflex] active: planner, controller, behavior, costmaps");
         return rclcpp_lifecycle::node_interfaces::LifecycleNodeInterface::
             CallbackReturn::SUCCESS;
     }

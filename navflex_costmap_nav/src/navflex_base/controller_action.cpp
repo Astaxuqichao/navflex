@@ -53,8 +53,7 @@ void ControllerAction::start(const GoalHandlePtr& goal_handle,
         if (same_controller && same_goal_checker) {
           RCLCPP_INFO(
               rclcpp::get_logger(name_),
-              "[ControllerAction] Preempt: in-place plan update in slot %d, old goal_handle=%p, new goal_handle=%p, controller=%s, path_size=%zu",
-              slot_id, active_handle.get(), goal_handle.get(),
+              "[FollowPath] path update accepted: controller=%s poses=%zu",
               execution_ptr->getName().c_str(),
               goal_handle->get_goal()->path.poses.size());
           update_plan = true;
@@ -76,9 +75,9 @@ void ControllerAction::start(const GoalHandlePtr& goal_handle,
           // to NavflexActionBase::start(), calls cancel() on the running execution,
           // and publishes a zero-velocity command before doing a full restart.
           active_handle = goal_handle;
-          RCLCPP_INFO(rclcpp::get_logger(name_),
-                      "[ControllerAction] Preempt: new goal_handle %p queued in slot %d",
-                      goal_handle.get(), slot_id);
+          RCLCPP_DEBUG(rclcpp::get_logger(name_),
+                       "[ControllerAction] Preempt queued: slot=%d new_goal_handle=%p",
+                       slot_id, goal_handle.get());
         } else {
           RCLCPP_WARN(
               rclcpp::get_logger(name_),
@@ -97,9 +96,9 @@ void ControllerAction::start(const GoalHandlePtr& goal_handle,
   // Abort old handle outside all locks to avoid holding mutexes during
   // ROS2 action server communication.
   if (old_handle_to_abort) {
-    RCLCPP_WARN(rclcpp::get_logger(name_),
-                "[ControllerAction] Aborting old goal_handle %p due to preempt",
-                old_handle_to_abort.get());
+    RCLCPP_DEBUG(rclcpp::get_logger(name_),
+                 "[ControllerAction] Aborting old goal_handle %p due to preempt",
+                 old_handle_to_abort.get());
     auto result = std::make_shared<ActionFollowPath::Result>();
     result->outcome = ActionFollowPath::Result::CANCELED;
     result->message = "Preempted by a newer FollowPath goal";
@@ -176,9 +175,9 @@ void ControllerAction::runImpl(const GoalHandlePtr& goal_handle,
     {
       std::lock_guard<std::mutex> gp_guard(goal_mtx_);
       if (pending_goal_handle_) {
-        RCLCPP_INFO(rclcpp::get_logger(name_),
-                    "[ControllerAction] runImpl() switching to preempted goal_handle %p",
-                    pending_goal_handle_.get());
+        RCLCPP_DEBUG(rclcpp::get_logger(name_),
+                     "[ControllerAction] runImpl() switching to preempted goal_handle %p",
+                     pending_goal_handle_.get());
         current_handle = pending_goal_handle_;
         pending_goal_handle_.reset();
       }
@@ -208,7 +207,7 @@ void ControllerAction::runImpl(const GoalHandlePtr& goal_handle,
 
     switch (state) {
       case ControllerExecution::INITIALIZED:
-        RCLCPP_INFO(rclcpp::get_logger(name_), "[ControllerAction] State: INITIALIZED for goal_handle %p", current_handle.get());
+        RCLCPP_DEBUG(rclcpp::get_logger(name_), "[ControllerAction] State: INITIALIZED for goal_handle %p", current_handle.get());
         // Do not override a newer preempted plan that may have already been queued.
         if (!execution.hasNewPlan()) {
           execution.setNewPlan(current_handle->get_goal()->path);

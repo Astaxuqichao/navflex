@@ -3,9 +3,10 @@ import os
 from ament_index_python.packages import get_package_share_directory
 from launch import LaunchDescription
 from launch.actions import DeclareLaunchArgument, OpaqueFunction, SetEnvironmentVariable
+from launch.conditions import IfCondition, UnlessCondition
 from launch.substitutions import LaunchConfiguration
-from launch_ros.actions import Node
-from launch_ros.descriptions import ParameterFile
+from launch_ros.actions import LoadComposableNodes, Node
+from launch_ros.descriptions import ComposableNode, ParameterFile
 from nav2_common.launch import RewrittenYaml
 
 
@@ -20,6 +21,8 @@ def launch_setup(context, *args, **kwargs):
     bt_params_file = LaunchConfiguration('bt_params_file')
     bt_xml = LaunchConfiguration('default_nav_to_pose_bt_xml')
     use_respawn = LaunchConfiguration('use_respawn')
+    use_composition = LaunchConfiguration('use_composition')
+    container_name = LaunchConfiguration('container_name')
     log_level = LaunchConfiguration('log_level')
     graph_filepath = LaunchConfiguration('graph_filepath')
     use_route_server = LaunchConfiguration('use_route_server')
@@ -46,6 +49,7 @@ def launch_setup(context, *args, **kwargs):
 
     nodes = [
         Node(
+            condition=UnlessCondition(use_composition),
             package='navflex_costmap_nav',
             executable='costmap_nav_node',
             name='navflex_costmap_nav',
@@ -55,6 +59,52 @@ def launch_setup(context, *args, **kwargs):
             parameters=[configured_params],
             arguments=['--ros-args', '--log-level', log_level],
             remappings=remappings),
+
+        Node(
+            condition=IfCondition(use_composition),
+            package='rclcpp_components',
+            executable='component_container_isolated',
+            name=container_name,
+            output='screen',
+            parameters=[configured_params],
+            arguments=['--ros-args', '--log-level', log_level],
+            remappings=remappings),
+
+        LoadComposableNodes(
+            condition=IfCondition(use_composition),
+            target_container=container_name,
+            composable_node_descriptions=[
+                ComposableNode(
+                    package='navflex_costmap_nav',
+                    plugin='navflex_costmap_nav::CostmapNavNode',
+                    name='navflex_costmap_nav',
+                    parameters=[configured_params],
+                    remappings=remappings),
+                ComposableNode(
+                    package='nav2_bt_navigator',
+                    plugin='nav2_bt_navigator::BtNavigator',
+                    name='bt_navigator',
+                    parameters=[
+                        bt_params_file,
+                        {
+                            'use_sim_time': use_sim_time,
+                            'default_nav_to_pose_bt_xml': bt_xml,
+                        },
+                    ],
+                    remappings=remappings),
+                ComposableNode(
+                    package='nav2_lifecycle_manager',
+                    plugin='nav2_lifecycle_manager::LifecycleManager',
+                    name='lifecycle_manager_navflex',
+                    parameters=[
+                        {'use_sim_time': use_sim_time},
+                        {'autostart': autostart},
+                        {'node_names': lifecycle_nodes},
+                        {'bond_timeout': 10.0},
+                        {'bond_heartbeat_period': 0.1},
+                        {'attempt_respawn_reconnection': True},
+                    ]),
+            ]),
     ]
 
     if with_route:
@@ -78,6 +128,7 @@ def launch_setup(context, *args, **kwargs):
 
     nodes.extend([
         Node(
+            condition=UnlessCondition(use_composition),
             package='nav2_bt_navigator',
             executable='bt_navigator',
             name='bt_navigator',
@@ -93,6 +144,7 @@ def launch_setup(context, *args, **kwargs):
             remappings=remappings),
 
         Node(
+            condition=UnlessCondition(use_composition),
             package='nav2_lifecycle_manager',
             executable='lifecycle_manager',
             name='lifecycle_manager_navflex',
@@ -135,6 +187,10 @@ def generate_launch_description():
                               description='Automatically configure and activate lifecycle nodes'),
         DeclareLaunchArgument('use_respawn', default_value='False',
                               description='Respawn navflex_costmap_nav if it exits'),
+        DeclareLaunchArgument('use_composition', default_value='False',
+                              description='Load navflex_costmap_nav, bt_navigator, and lifecycle_manager_navflex into a component container'),
+        DeclareLaunchArgument('container_name', default_value='navflex_container',
+                              description='Component container name when use_composition is True'),
         DeclareLaunchArgument('log_level', default_value='info', description='Log level'),
         DeclareLaunchArgument('graph_filepath', default_value=default_graph,
                               description='Full path to the navigation route graph file'),

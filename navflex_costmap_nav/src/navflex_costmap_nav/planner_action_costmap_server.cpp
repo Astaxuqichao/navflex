@@ -48,7 +48,8 @@ PlannerCostmapServer::PlannerCostmapServer(
       costmap_(nullptr),
       costmap_ros_(costmap_ros),
       robot_info_(robot_info) {
-  RCLCPP_INFO(get_logger(), "Creating");
+  RCLCPP_INFO(get_logger(), "[PlannerServer] created action_server=%s",
+              name_action_get_path_.c_str());
 
   // Declare this node's parameters
   declare_parameter("planner_plugins", default_ids_);
@@ -113,7 +114,7 @@ PlannerCostmapServer::~PlannerCostmapServer() {
  */
 nav2_util::CallbackReturn PlannerCostmapServer::on_configure(
     const rclcpp_lifecycle::State& /*state*/) {
-  RCLCPP_INFO(get_logger(), "Configuring Planner server");
+  RCLCPP_INFO(get_logger(), "[PlannerServer] configuring");
 
   costmap_ = costmap_ros_->getCostmap();
 
@@ -133,7 +134,7 @@ nav2_util::CallbackReturn PlannerCostmapServer::on_configure(
           nav2_util::get_plugin_type_param(node, planner_ids_[i]);
       nav2_core::GlobalPlanner::Ptr planner =
           gp_loader_.createUniqueInstance(planner_types_[i]);
-      RCLCPP_INFO(get_logger(), "Created global planner plugin %s of type %s",
+      RCLCPP_INFO(get_logger(), "[PlannerServer] loaded planner id=%s type=%s",
                   planner_ids_[i].c_str(), planner_types_[i].c_str());
       planner->configure(node, planner_ids_[i], tf_, costmap_ros_);
       planners_.insert({planner_ids_[i], planner});
@@ -148,7 +149,7 @@ nav2_util::CallbackReturn PlannerCostmapServer::on_configure(
     planner_ids_concat_ += planner_ids_[i] + std::string(" ");
   }
 
-  RCLCPP_INFO(get_logger(), "Planner Server has %s planners available.",
+  RCLCPP_INFO(get_logger(), "[PlannerServer] ready planners=[%s]",
               planner_ids_concat_.c_str());
 
   planner_action_ =
@@ -213,7 +214,8 @@ nav2_util::CallbackReturn PlannerCostmapServer::on_configure(
  */
 nav2_util::CallbackReturn PlannerCostmapServer::on_activate(
     const rclcpp_lifecycle::State& /*state*/) {
-  RCLCPP_INFO(get_logger(), "Activating Planner server");
+  RCLCPP_INFO(get_logger(), "[PlannerServer] activating planners=[%s]",
+              planner_ids_concat_.c_str());
 
   PlannerMap::iterator it;
   for (it = planners_.begin(); it != planners_.end(); ++it) {

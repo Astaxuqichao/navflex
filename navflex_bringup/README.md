@@ -34,7 +34,9 @@ Common arguments:
 | `bt_params_file` | `navflex_bt_navigator/params/navflex_bt_navigator.yaml` | Parameters for `bt_navigator`. |
 | `default_nav_to_pose_bt_xml` | `navflex_bt_navigator/behavior_trees/test_bt_navigator.xml` | Behavior tree XML used by NavigateToPose. |
 | `autostart` | `true` | Automatically configure and activate lifecycle nodes. |
-| `use_respawn` | `False` | Respawn `navflex_costmap_nav` if it exits. |
+| `use_respawn` | `False` | Respawn `navflex_costmap_nav` if it exits. Only applies when `use_composition:=False`. |
+| `use_composition` | `False` | Load `navflex_costmap_nav`, `bt_navigator`, and `lifecycle_manager_navflex` into one component container. |
+| `container_name` | `navflex_container` | Component container name when `use_composition:=True`. |
 | `log_level` | `info` | ROS log level. |
 | `use_route_server` | `False` | Start `nav2_route` with the Navflex stack. |
 | `graph_filepath` | `nav2_route/graphs/sample_graph.geojson` | Route graph file used when `use_route_server:=True`. |
@@ -45,6 +47,18 @@ Example with simulation time:
 ```bash
 ros2 launch navflex_bringup navflex_bringup_launch.py use_sim_time:=true
 ```
+
+Example with composition:
+
+```bash
+ros2 launch navflex_bringup navflex_bringup_launch.py \
+  use_composition:=True \
+  container_name:=navflex_container
+```
+
+When composition is enabled, `navflex_costmap_nav`, `bt_navigator`, and
+`lifecycle_manager_navflex` run in the same container. The optional
+`route_server` remains a separate process.
 
 Example with route server:
 

@@ -31,7 +31,8 @@ ControllerCostmapServer::ControllerCostmapServer(
       costmap_ros_(costmap_ros),
       robot_info_(robot_info),
       name_action_follow_path_("follow_path") {
-  RCLCPP_INFO(get_logger(), "Creating ControllerCostmapServer (navflex mode)");
+  RCLCPP_INFO(get_logger(), "[ControllerServer] created action_server=%s",
+              name_action_follow_path_.c_str());
 
   declare_parameter("controller_frequency", 20.0);
   declare_parameter("goal_checker_plugins", default_goal_checker_ids_);
@@ -49,7 +50,7 @@ ControllerCostmapServer::~ControllerCostmapServer() {
 
 nav2_util::CallbackReturn ControllerCostmapServer::on_configure(
     const rclcpp_lifecycle::State& /*state*/) {
-  RCLCPP_INFO(get_logger(), "Configuring ControllerCostmapServer");
+  RCLCPP_INFO(get_logger(), "[ControllerServer] configuring");
   auto node = shared_from_this();
 
   // --- Goal checkers ---
@@ -69,7 +70,7 @@ nav2_util::CallbackReturn ControllerCostmapServer::on_configure(
           nav2_util::get_plugin_type_param(node, goal_checker_ids_[i]);
       nav2_core::GoalChecker::Ptr gc =
           goal_checker_loader_.createUniqueInstance(goal_checker_types_[i]);
-      RCLCPP_INFO(get_logger(), "Created goal_checker: %s of type %s",
+      RCLCPP_INFO(get_logger(), "[ControllerServer] loaded goal_checker id=%s type=%s",
                   goal_checker_ids_[i].c_str(), goal_checker_types_[i].c_str());
       gc->initialize(node, goal_checker_ids_[i], costmap_ros_);
       goal_checkers_.insert({goal_checker_ids_[i], gc});
@@ -81,7 +82,7 @@ nav2_util::CallbackReturn ControllerCostmapServer::on_configure(
   for (const auto& id : goal_checker_ids_) {
     goal_checker_ids_concat_ += id + " ";
   }
-  RCLCPP_INFO(get_logger(), "Goal checkers available: %s",
+  RCLCPP_INFO(get_logger(), "[ControllerServer] goal_checkers=[%s]",
               goal_checker_ids_concat_.c_str());
 
   // --- Controllers ---
@@ -101,7 +102,7 @@ nav2_util::CallbackReturn ControllerCostmapServer::on_configure(
           nav2_util::get_plugin_type_param(node, controller_ids_[i]);
       nav2_core::Controller::Ptr ctrl =
           lp_loader_.createUniqueInstance(controller_types_[i]);
-      RCLCPP_INFO(get_logger(), "Created controller: %s of type %s",
+      RCLCPP_INFO(get_logger(), "[ControllerServer] loaded controller id=%s type=%s",
                   controller_ids_[i].c_str(), controller_types_[i].c_str());
       ctrl->configure(node, controller_ids_[i],
                       costmap_ros_->getTfBuffer(), costmap_ros_);
@@ -114,7 +115,7 @@ nav2_util::CallbackReturn ControllerCostmapServer::on_configure(
   for (const auto& id : controller_ids_) {
     controller_ids_concat_ += id + " ";
   }
-  RCLCPP_INFO(get_logger(), "Controllers available: %s",
+  RCLCPP_INFO(get_logger(), "[ControllerServer] controllers=[%s]",
               controller_ids_concat_.c_str());
 
   // --- Publishers ---
@@ -156,7 +157,8 @@ nav2_util::CallbackReturn ControllerCostmapServer::on_configure(
 
 nav2_util::CallbackReturn ControllerCostmapServer::on_activate(
     const rclcpp_lifecycle::State& /*state*/) {
-  RCLCPP_INFO(get_logger(), "Activating ControllerCostmapServer");
+  RCLCPP_INFO(get_logger(), "[ControllerServer] activating controllers=[%s]",
+              controller_ids_concat_.c_str());
   for (auto& [id, ctrl] : controllers_) {
     ctrl->activate();
   }
@@ -223,7 +225,7 @@ rclcpp_action::GoalResponse ControllerCostmapServer::handleGoalFollowPath(
   if (!poses.empty()) {
     const auto& start = poses.front().pose.position;
     const auto& end = poses.back().pose.position;
-    RCLCPP_INFO(
+    RCLCPP_DEBUG(
         get_logger(),
         "Received FollowPath goal: controller_id='%s', goal_checker_id='%s', frame='%s', poses=%zu, start=(%.3f, %.3f), end=(%.3f, %.3f)",
         goal->controller_id.c_str(), goal->goal_checker_id.c_str(),
@@ -317,9 +319,9 @@ void ControllerCostmapServer::callActionFollowPath(
   const auto& end = normalized_path.poses.back().pose.position;
   RCLCPP_INFO(
       get_logger(),
-      "Executing FollowPath: controller='%s', goal_checker='%s', frame='%s', poses=%zu, start=(%.3f, %.3f), end=(%.3f, %.3f)",
+      "[FollowPath] goal accepted: controller=%s goal_checker=%s poses=%zu frame=%s start=(%.2f, %.2f) goal=(%.2f, %.2f)",
       controller_id.c_str(), goal_checker_id.c_str(),
-      normalized_path.header.frame_id.c_str(), normalized_path.poses.size(),
+      normalized_path.poses.size(), normalized_path.header.frame_id.c_str(),
       start.x, start.y, end.x, end.y);
 
   // Create execution object and start

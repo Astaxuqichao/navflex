@@ -60,7 +60,7 @@ ControllerExecution::ControllerExecution(
   patience_ = rclcpp::Duration::from_seconds(patience);
   node_handle_->get_parameter("controller_max_retries", max_retries_);
 
-  RCLCPP_INFO(node_handle_->get_logger(), "[ControllerExecution] Constructed for %s", name_.c_str());
+  RCLCPP_DEBUG(node_handle_->get_logger(), "[ControllerExecution] Constructed for %s", name_.c_str());
   dyn_params_handler_ = node_handle_->add_on_set_parameters_callback(
       std::bind(&ControllerExecution::reconfigure, this, std::placeholders::_1));
 }
@@ -146,7 +146,7 @@ void ControllerExecution::setNewPlan(const nav_msgs::msg::Path& path) {
   if (!path.poses.empty()) {
     const auto& start = path.poses.front().pose.position;
     const auto& end = path.poses.back().pose.position;
-    RCLCPP_INFO(
+    RCLCPP_DEBUG(
         node_handle_->get_logger(),
         "[ControllerExecution] Queued new plan for %s: frame='%s', poses=%zu, start=(%.3f, %.3f), end=(%.3f, %.3f)",
         name_.c_str(), path.header.frame_id.c_str(), path.poses.size(),
@@ -269,7 +269,10 @@ void ControllerExecution::run() {
       // Update plan if a new one has arrived
       if (hasNewPlan()) {
         path = getNewPlan();
-        RCLCPP_INFO(node_handle_->get_logger(), "[ControllerExecution] Received new plan with %zu poses for %s (frame='%s', costmap_global_frame='%s')", path.poses.size(), name_.c_str(), path.header.frame_id.c_str(), global_frame_.c_str());
+        RCLCPP_INFO(node_handle_->get_logger(),
+                    "[FollowPath] tracking path update: controller=%s poses=%zu frame=%s",
+                    name_.c_str(), path.poses.size(),
+                    path.header.frame_id.c_str());
         if (path.poses.empty()) {
           outcome_ = ActionFollowPath::Result::INVALID_PATH;
           message_ = "Controller received an empty plan";

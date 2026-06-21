@@ -140,7 +140,9 @@ ros2 launch navflex_bringup navflex_bringup_launch.py
 | `use_sim_time` | `false` | 是否使用仿真时钟 |
 | `autostart` | `true` | 是否自动激活生命周期节点 |
 | `log_level` | `info` | 日志级别（debug/info/warn/error） |
-| `use_respawn` | `False` | 节点崩溃后是否自动重启 |
+| `use_respawn` | `False` | 节点崩溃后是否自动重启，仅 `use_composition:=False` 时对 `navflex_costmap_nav` 生效 |
+| `use_composition` | `False` | 是否将 `navflex_costmap_nav`、`bt_navigator`、`lifecycle_manager_navflex` 加载到同一个组件容器 |
+| `container_name` | `navflex_container` | `use_composition:=True` 时使用的组件容器名称 |
 | `namespace` | `` | 命名空间 |
 | `use_route_server` | `False` | 是否同时启动 nav2_route 路网服务器 |
 | `graph_filepath` | `nav2_route/graphs/sample_graph.geojson` | 路网图文件路径 |
@@ -152,6 +154,17 @@ ros2 launch navflex_bringup navflex_bringup_launch.py \
   graph_filepath:=/path/to/your_graph.geojson \
   use_sim_time:=true
 ```
+
+示例（compose 方式启动核心导航节点）：
+```bash
+ros2 launch navflex_bringup navflex_bringup_launch.py \
+  use_composition:=True \
+  container_name:=navflex_container
+```
+
+启用 `use_composition:=True` 后，`navflex_costmap_nav`、`bt_navigator`、
+`lifecycle_manager_navflex` 会运行在同一个 container 中；可选的
+`route_server` 仍按独立进程启动。
 
 #### 生命周期节点管理
 
