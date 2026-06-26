@@ -1,0 +1,7 @@
+navflex_semantic_map_server:
+  ros__parameters:
+    global_frame: map
+    landmarks:
+      - "charging_station|charger|0.0|0.0|0.0|充电桩,charger,充电站"
+      - "kitchen|room|1.0|2.0|1.57|厨房,kitchen"
+      - "corridor|region|2.0|0.0|0.0|走廊,corridor"

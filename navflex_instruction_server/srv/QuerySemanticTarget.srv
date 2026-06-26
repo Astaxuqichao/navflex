@@ -1,0 +1,14 @@
+# Query a semantic landmark or region and return the best navigation pose.
+string query
+string target_type
+float64 near_x
+float64 near_y
+bool use_near
+---
+bool success
+string target_name
+string target_type
+geometry_msgs/PoseStamped pose
+string message
+string[] candidates
+float64 score

@@ -22,8 +22,9 @@ namespace navflex_cmdbehavior {
  *   global_costmap->getRobotPose() to track motion completion.
  *
  * Command format passed to runBehavior(message):
- *   "linear:<distance_m>"  — drive straight; + = forward, - = backward
- *   "rotate:<angle_deg>"   — rotate in place; + = CCW (left), - = CW (right)
+ *   "linear <distance_m>"  — drive straight; + = forward, - = backward
+ *   "rotate <angle_rad>"   — rotate in place; + = CCW (left), - = CW (right)
+ *   "wait <seconds>"       — wait in place
  *
  * Parameters (yaml / ros2 param):
  *   linear_vel     (double, 0.2)   — linear speed       [m/s]
@@ -66,6 +67,8 @@ class CmdBehavior : public nav2_core::Behavior {
 
   // Get robot pose from global costmap
   bool getCurrentPose(geometry_msgs::msg::PoseStamped & pose);
+  bool loadParameters(std::string & message);
+  bool validateParameters(std::string & message) const;
 
   rclcpp_lifecycle::LifecycleNode::WeakPtr node_;
   std::string name_;
@@ -79,6 +82,7 @@ class CmdBehavior : public nav2_core::Behavior {
   double yaw_tolerance_{0.017};    // rad (~1 deg)
   double timeout_{30.0};           // s
   double control_frequency_{10.0}; // Hz
+  std::string cmd_vel_topic_{"cmd_vel_nav"};
 
   rclcpp::Publisher<geometry_msgs::msg::Twist>::SharedPtr cmd_vel_pub_;
   std::atomic<bool> stop_{false};

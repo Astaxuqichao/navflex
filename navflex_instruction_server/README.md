@@ -301,3 +301,140 @@ colcon build --symlink-install --packages-select navflex_instruction_server
 ## 设计边界
 
 这个包是“指令路由层”：负责抽象文本解析、能力发现和调用编排。真正的导航行为仍由 `navflex_costmap_nav`、`navflex_cmdbehavior` 和 Nav2 插件完成。
+
+## 语义任务与 VLN 桥接
+
+在基础文本指令服务之上，本包还提供三层面向 AI/VLN 的安全执行入口：
+
+- `navflex_semantic_map_server.py`：维护语义地标/区域，提供 `/navflex_semantic_map/query_target`、`/update_landmark`、`/list_landmarks`。
+- `navflex_task_server.py`：接收结构化任务或自然语言任务，先做 schema 校验和语义 grounding，再调用 `/navflex_instruction/execute`。
+- `navflex_vln_bridge.py`：接收外部 VLM/VLN/LLM 输出，归一化为 Navflex task schema，再转给任务层，避免模型直接控制底盘。
+
+启动完整 AI/VLN 任务栈：
+
+```bash
+ros2 launch navflex_instruction_server task_stack.launch.py
+```
+
+默认会加载包内示例语义地图：
+`params/semantic_landmarks.yaml`，其中包含 `charging_station` / `充电桩`、
+`kitchen` / `厨房` 和 `corridor` / `走廊`。也可以替换成自己的语义地图：
+
+```bash
+ros2 launch navflex_instruction_server task_stack.launch.py \
+  semantic_params_file:=/path/to/semantic_landmarks.yaml
+```
+
+### 最小体验流程
+
+先编译并启动任务栈：
+
+```bash
+colcon build --packages-select navflex_instruction_server
+source install/setup.bash
+ros2 launch navflex_instruction_server task_stack.launch.py
+```
+
+另开一个终端，查询示例语义目标：
+
+```bash
+source install/setup.bash
+ros2 service call /navflex_semantic_map/query_target \
+  navflex_instruction_server/srv/QuerySemanticTarget \
+  "{query: '充电桩'}"
+```
+
+体验自然语言任务 dry-run：
+
+```bash
+ros2 service call /navflex_task/execute \
+  navflex_instruction_server/srv/ExecuteTask \
+  "{instruction: '去充电桩', execute: false, dry_run: true}"
+```
+
+体验 VLN/VLM 桥接 dry-run：
+
+```bash
+ros2 service call /navflex_vln/interpret \
+  navflex_instruction_server/srv/InterpretVln \
+  "{instruction: '带我去充电桩', model_output_json: '{\"action\":\"semantic_navigate\",\"target\":\"charging_station\"}', execute: false, dry_run: true}"
+```
+
+### 结构化任务入口
+
+只解析和 grounding，不执行：
+
+```bash
+ros2 service call /navflex_task/execute \
+  navflex_instruction_server/srv/ExecuteTask \
+  "{instruction: '去充电桩', execute: false, dry_run: true}"
+```
+
+执行结构化任务：
+
+```bash
+ros2 service call /navflex_task/execute \
+  navflex_instruction_server/srv/ExecuteTask \
+  "{task_json: '{\"action\":\"semantic_navigate\",\"target\":\"charging_station\"}', execute: true}"
+```
+
+支持的第一版 task schema：
+
+```json
+{
+  "action": "semantic_navigate",
+  "target": "charging_station",
+  "target_type": "charger",
+  "constraints": ["avoid_crowd"],
+  "confirmation_required": false
+}
+```
+
+也支持直接位姿：
+
+```json
+{
+  "action": "navigate",
+  "pose": {"x": 1.0, "y": 2.0, "yaw": 1.57}
+}
+```
+
+### 语义地图
+
+查询地标：
+
+```bash
+ros2 service call /navflex_semantic_map/query_target \
+  navflex_instruction_server/srv/QuerySemanticTarget \
+  "{query: '充电桩'}"
+```
+
+运行时更新地标：
+
+```bash
+ros2 service call /navflex_semantic_map/update_landmark \
+  navflex_instruction_server/srv/UpdateLandmark \
+  "{name: 'door_a', target_type: 'door', pose: {header: {frame_id: 'map'}, pose: {position: {x: 2.0, y: 1.0}, orientation: {w: 1.0}}}, aliases: ['A门']}"
+```
+
+### VLN/VLM 桥接
+
+外部模型输出应限制为 JSON 对象，例如：
+
+```json
+{
+  "action": "semantic_navigate",
+  "target": "charging_station",
+  "constraints": ["avoid_crowd"]
+}
+```
+
+调用：
+
+```bash
+ros2 service call /navflex_vln/interpret \
+  navflex_instruction_server/srv/InterpretVln \
+  "{instruction: '带我去充电桩', model_output_json: '{\"action\":\"semantic_navigate\",\"target\":\"charging_station\"}', execute: false, dry_run: true}"
+```
+
+`execute=false` 或 `dry_run=true` 时只完成解释、grounding 和安全检查，不真正调用导航执行。

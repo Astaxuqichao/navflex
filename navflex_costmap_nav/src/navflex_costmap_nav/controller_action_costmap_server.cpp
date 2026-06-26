@@ -38,6 +38,7 @@ ControllerCostmapServer::ControllerCostmapServer(
   declare_parameter("goal_checker_plugins", default_goal_checker_ids_);
   declare_parameter("controller_plugins", default_ids_);
   declare_parameter("speed_limit_topic", rclcpp::ParameterValue(std::string("speed_limit")));
+  declare_parameter("cmd_vel_topic", rclcpp::ParameterValue(std::string("cmd_vel_nav")));
 }
 
 ControllerCostmapServer::~ControllerCostmapServer() {
@@ -119,8 +120,10 @@ nav2_util::CallbackReturn ControllerCostmapServer::on_configure(
               controller_ids_concat_.c_str());
 
   // --- Publishers ---
+  std::string cmd_vel_topic;
+  get_parameter("cmd_vel_topic", cmd_vel_topic);
   vel_publisher_ =
-      create_publisher<geometry_msgs::msg::Twist>("cmd_vel", 1);
+      create_publisher<geometry_msgs::msg::Twist>(cmd_vel_topic, 1);
   current_goal_publisher_ =
       create_publisher<geometry_msgs::msg::PoseStamped>("~/current_goal", 1);
 

@@ -6,6 +6,7 @@ navflex_controller_server:
     controller_max_retries: -1
     controller_stuck_timeout: 10.0
     controller_stuck_distance: 2.0
+    cmd_vel_topic: "cmd_vel_nav"
     robot_frame: "base_link"
     map_frame: "map"
     verbose: false
@@ -169,6 +170,7 @@ navflex_behavior_server:
       yaw_tolerance: 0.017   # rad   — stop when within this of target angle (~1 deg)
       timeout: 30.0          # s     — safety abort timeout
       control_frequency: 10.0  # Hz  — control loop rate
+      cmd_vel_topic: "cmd_vel_nav"
 
 local_costmap:
   local_costmap:

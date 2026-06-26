@@ -1,0 +1,16 @@
+# Bridge VLM/VLN output into the Navflex task schema.
+# model_output_json can be the raw output of an external VLM/LLM. When empty,
+# the bridge falls back to deterministic parsing from instruction/context.
+string instruction
+string perception_json
+string semantic_context_json
+string model_output_json
+bool execute
+bool dry_run
+---
+bool success
+bool execution_success
+string action_json
+string message
+string[] steps
+builtin_interfaces/Duration elapsed_time

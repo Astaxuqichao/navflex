@@ -20,6 +20,11 @@ static double quatToYaw(const geometry_msgs::msg::Quaternion & q)
                     1.0 - 2.0 * (q.y * q.y + q.z * q.z));
 }
 
+static bool isFinite(double value)
+{
+  return std::isfinite(value);
+}
+
 // ---------------------------------------------------------------------------
 // Shared parameter init — called by the costmap configure (primary path)
 // ---------------------------------------------------------------------------
@@ -47,22 +52,71 @@ void CmdBehavior::init(
       node, name_ + ".timeout",            rclcpp::ParameterValue(30.0));
   nav2_util::declare_parameter_if_not_declared(
       node, name_ + ".control_frequency",  rclcpp::ParameterValue(10.0));
+  nav2_util::declare_parameter_if_not_declared(
+      node, name_ + ".cmd_vel_topic", rclcpp::ParameterValue(std::string("cmd_vel_nav")));
 
-  node->get_parameter(name_ + ".linear_vel",       linear_vel_);
-  node->get_parameter(name_ + ".angular_vel",      angular_vel_);
-  node->get_parameter(name_ + ".xy_tolerance",     xy_tolerance_);
-  node->get_parameter(name_ + ".yaw_tolerance",    yaw_tolerance_);
-  node->get_parameter(name_ + ".timeout",          timeout_);
-  node->get_parameter(name_ + ".control_frequency", control_frequency_);
+  std::string validation_message;
+  if (!loadParameters(validation_message)) {
+    throw std::runtime_error(validation_message);
+  }
 
   cmd_vel_pub_ = node->create_publisher<geometry_msgs::msg::Twist>(
-      "cmd_vel", rclcpp::SystemDefaultsQoS());
+      cmd_vel_topic_, rclcpp::SystemDefaultsQoS());
 
   RCLCPP_INFO(node->get_logger(),
       "CmdBehavior '%s' configured: linear_vel=%.2f angular_vel=%.2f "
-      "xy_tol=%.3f yaw_tol=%.3f timeout=%.1f freq=%.1f",
+      "xy_tol=%.3f yaw_tol=%.3f timeout=%.1f freq=%.1f cmd_vel_topic=%s",
       name_.c_str(), linear_vel_, angular_vel_,
-      xy_tolerance_, yaw_tolerance_, timeout_, control_frequency_);
+      xy_tolerance_, yaw_tolerance_, timeout_, control_frequency_,
+      cmd_vel_topic_.c_str());
+}
+
+bool CmdBehavior::loadParameters(std::string & message)
+{
+  auto node = node_.lock();
+  if (!node) {
+    message = "CmdBehavior: node is no longer valid";
+    return false;
+  }
+
+  node->get_parameter(name_ + ".linear_vel", linear_vel_);
+  node->get_parameter(name_ + ".angular_vel", angular_vel_);
+  node->get_parameter(name_ + ".xy_tolerance", xy_tolerance_);
+  node->get_parameter(name_ + ".yaw_tolerance", yaw_tolerance_);
+  node->get_parameter(name_ + ".timeout", timeout_);
+  node->get_parameter(name_ + ".control_frequency", control_frequency_);
+  node->get_parameter(name_ + ".cmd_vel_topic", cmd_vel_topic_);
+
+  return validateParameters(message);
+}
+
+bool CmdBehavior::validateParameters(std::string & message) const
+{
+  if (!isFinite(linear_vel_) || linear_vel_ <= 0.0) {
+    message = "CmdBehavior: linear_vel must be finite and > 0";
+    return false;
+  }
+  if (!isFinite(angular_vel_) || angular_vel_ <= 0.0) {
+    message = "CmdBehavior: angular_vel must be finite and > 0";
+    return false;
+  }
+  if (!isFinite(xy_tolerance_) || xy_tolerance_ < 0.0) {
+    message = "CmdBehavior: xy_tolerance must be finite and >= 0";
+    return false;
+  }
+  if (!isFinite(yaw_tolerance_) || yaw_tolerance_ < 0.0) {
+    message = "CmdBehavior: yaw_tolerance must be finite and >= 0";
+    return false;
+  }
+  if (!isFinite(timeout_) || timeout_ <= 0.0) {
+    message = "CmdBehavior: timeout must be finite and > 0";
+    return false;
+  }
+  if (!isFinite(control_frequency_) || control_frequency_ <= 0.0) {
+    message = "CmdBehavior: control_frequency must be finite and > 0";
+    return false;
+  }
+  return true;
 }
 
 // ---------------------------------------------------------------------------
@@ -131,13 +185,12 @@ uint32_t CmdBehavior::runBehavior(std::string & message)
   }
 
   // Re-read parameters so they can be changed between calls via ros2 param set
-  node->get_parameter(name_ + ".linear_vel",    linear_vel_);
-  node->get_parameter(name_ + ".angular_vel",   angular_vel_);
-  node->get_parameter(name_ + ".xy_tolerance",  xy_tolerance_);
-  node->get_parameter(name_ + ".yaw_tolerance", yaw_tolerance_);
-  node->get_parameter(name_ + ".timeout",       timeout_);
+  if (!loadParameters(message)) {
+    RCLCPP_ERROR(node->get_logger(), "%s", message.c_str());
+    return Result::FAILURE;
+  }
 
-  // ---- Parse command: "linear <distance_m>" or "rotate <angle_deg>" --------
+  // ---- Parse command: "linear <distance_m>", "rotate <angle_rad>", or "wait <seconds>"
   const auto space = message.find(' ');
   if (space == std::string::npos) {
     message = "CmdBehavior: invalid format, expected 'linear <m>' or 'rotate <deg>'";
@@ -154,28 +207,23 @@ uint32_t CmdBehavior::runBehavior(std::string & message)
     RCLCPP_ERROR(node->get_logger(), "%s", message.c_str());
     return Result::FAILURE;
   }
+  if (!std::isfinite(value)) {
+    message = "CmdBehavior: command value must be finite";
+    RCLCPP_ERROR(node->get_logger(), "%s", message.c_str());
+    return Result::FAILURE;
+  }
 
   // ---- Build velocity command ----------------------------------------------
   const auto period = std::chrono::milliseconds(
-      static_cast<int>(1000.0 / control_frequency_));
+      std::max(1, static_cast<int>(1000.0 / control_frequency_)));
   geometry_msgs::msg::Twist cmd;
   double target_dist      = 0.0;
   double target_angle_rad = 0.0;
 
   if (cmd_type == "linear") {
-    if (std::abs(linear_vel_) < 1e-6) {
-      message = "CmdBehavior: linear_vel is zero";
-      RCLCPP_ERROR(node->get_logger(), "%s", message.c_str());
-      return Result::FAILURE;
-    }
     cmd.linear.x = (value >= 0.0) ? linear_vel_ : -linear_vel_;
     target_dist  = std::abs(value);
   } else if (cmd_type == "rotate") {
-    if (std::abs(angular_vel_) < 1e-6) {
-      message = "CmdBehavior: angular_vel is zero";
-      RCLCPP_ERROR(node->get_logger(), "%s", message.c_str());
-      return Result::FAILURE;
-    }
     target_angle_rad = value;
     cmd.angular.z    = (value >= 0.0) ? angular_vel_ : -angular_vel_;
   } else if (cmd_type == "wait") {
@@ -304,4 +352,3 @@ uint32_t CmdBehavior::runBehavior(std::string & message)
 }  // namespace navflex_cmdbehavior
 
 PLUGINLIB_EXPORT_CLASS(navflex_cmdbehavior::CmdBehavior, nav2_core::Behavior)
-

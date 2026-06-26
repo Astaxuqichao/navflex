@@ -1,0 +1,18 @@
+# High-level task entrypoint for semantic / language navigation.
+# If task_json is set, it should follow the navflex task schema. If it is
+# empty, instruction is parsed with local semantic rules.
+string instruction
+string task_json
+bool execute
+bool dry_run
+bool require_confirmation
+---
+bool success
+bool accepted
+bool requires_confirmation
+string task_json
+string command_type
+string normalized_command
+string message
+string[] steps
+builtin_interfaces/Duration elapsed_time

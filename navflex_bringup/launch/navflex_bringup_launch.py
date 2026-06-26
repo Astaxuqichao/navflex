@@ -32,6 +32,7 @@ def launch_setup(context, *args, **kwargs):
     lifecycle_nodes = ['navflex_costmap_nav']
     if with_route:
         lifecycle_nodes.append('route_server')
+    lifecycle_nodes.append('velocity_smoother')
     lifecycle_nodes.append('bt_navigator')
 
     remappings = [('/tf', 'tf'), ('/tf_static', 'tf_static')]
@@ -93,6 +94,12 @@ def launch_setup(context, *args, **kwargs):
                     ],
                     remappings=remappings),
                 ComposableNode(
+                    package='nav2_velocity_smoother',
+                    plugin='nav2_velocity_smoother::VelocitySmoother',
+                    name='velocity_smoother',
+                    parameters=[configured_params],
+                    remappings=remappings + [('cmd_vel', 'cmd_vel_nav'), ('cmd_vel_smoothed', 'cmd_vel')]),
+                ComposableNode(
                     package='nav2_lifecycle_manager',
                     plugin='nav2_lifecycle_manager::LifecycleManager',
                     name='lifecycle_manager_navflex',
@@ -142,6 +149,16 @@ def launch_setup(context, *args, **kwargs):
             ],
             arguments=['--ros-args', '--log-level', log_level],
             remappings=remappings),
+
+        Node(
+            condition=UnlessCondition(use_composition),
+            package='nav2_velocity_smoother',
+            executable='velocity_smoother',
+            name='velocity_smoother',
+            output='screen',
+            parameters=[configured_params],
+            arguments=['--ros-args', '--log-level', log_level],
+            remappings=remappings + [('cmd_vel', 'cmd_vel_nav'), ('cmd_vel_smoothed', 'cmd_vel')]),
 
         Node(
             condition=UnlessCondition(use_composition),

@@ -1,0 +1,9 @@
+# Add/update/remove one semantic landmark.
+string name
+string target_type
+geometry_msgs/PoseStamped pose
+string[] aliases
+bool remove
+---
+bool success
+string message

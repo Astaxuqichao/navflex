@@ -1,6 +1,7 @@
 #pragma once
 
 // Standard library includes
+#include <atomic>
 #include <functional>
 #include <map>
 #include <memory>
@@ -95,7 +96,7 @@ class NavflexActionBase {
     GoalHandlePtr goal_handle;
 
     /// Flag indicating whether this slot is currently in use
-    bool in_use;
+    std::atomic<bool> in_use;
   };
 
   /// Internal map type: slot ID -> concurrency slot
@@ -260,7 +261,7 @@ class NavflexActionBase {
             << name_ << "\" run method, waiting for execution to complete.");
     slot.execution->join();
     slot.execution->postRun();
-    slot.in_use = false;
+    slot.in_use.store(false);
   }
 
   /**
@@ -385,7 +386,7 @@ class NavflexActionBase {
   void cleanupSlot(SlotId slot_id) {
     auto slot_it = concurrency_slots_.find(slot_id);
     if (slot_it != concurrency_slots_.end()) {
-      if (slot_it->second.in_use && slot_it->second.execution) {
+      if (slot_it->second.in_use.load() && slot_it->second.execution) {
         slot_it->second.execution->cancel();
       }
       waitAndCleanupThread(slot_it->second);
@@ -410,11 +411,10 @@ class NavflexActionBase {
   void setupAndStartSlot(SlotId slot_id, const GoalHandlePtr& goal_handle,
                          typename Execution::Ptr execution_ptr) {
     // Find or create slot
-    auto [slot_it, inserted] =
-        concurrency_slots_.try_emplace(slot_id, ConcurrencySlot());
+    auto [slot_it, inserted] = concurrency_slots_.try_emplace(slot_id);
 
     // Configure slot
-    slot_it->second.in_use = true;
+    slot_it->second.in_use.store(true);
     slot_it->second.goal_handle = goal_handle;
     slot_it->second.execution = execution_ptr;
 

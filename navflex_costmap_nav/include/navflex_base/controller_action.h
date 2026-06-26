@@ -72,6 +72,7 @@ class ControllerAction
   geometry_msgs::msg::PoseStamped goal_pose_;   ///< Goal pose (last path pose)
   /// Set by start() on in-place preempt; consumed by runImpl() each loop tick.
   GoalHandlePtr pending_goal_handle_;
+  GoalHandlePtr pending_preempted_goal_handle_;
 };
 
 }  // namespace navflex_costmap_nav

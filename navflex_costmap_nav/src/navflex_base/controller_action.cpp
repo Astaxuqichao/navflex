@@ -42,8 +42,6 @@ void ControllerAction::start(const GoalHandlePtr& goal_handle,
   // navflex_costmap_nav only supports slot 0 (no concurrency_slot in FollowPath)
   constexpr SlotId slot_id = 0;
   bool update_plan = false;
-  // Captured outside all locks so abort() can be called after releasing them.
-  GoalHandlePtr old_handle_to_abort;
   {
     std::lock_guard<std::mutex> map_guard(slot_map_mtx_);
     auto slot_it = concurrency_slots_.find(slot_id);
@@ -73,8 +71,7 @@ void ControllerAction::start(const GoalHandlePtr& goal_handle,
           goal_pose_ = poses.empty() ? geometry_msgs::msg::PoseStamped() : poses.back();
           // Store new goal handle; runImpl() will pick it up each loop tick.
           pending_goal_handle_ = goal_handle;
-          // Capture old handle; abort() is called after releasing all locks below.
-          old_handle_to_abort = active_handle;
+          pending_preempted_goal_handle_ = active_handle;
           // Update the slot's goal_handle to the new handle NOW (while both
           // slot_map_mtx_ and goal_mtx_ are held).  This is safe because
           // runImpl() copies slot.goal_handle into a local `current_handle` at
@@ -101,18 +98,6 @@ void ControllerAction::start(const GoalHandlePtr& goal_handle,
       }
     }
   }  // slot_map_mtx_ and goal_mtx_ released before abort()
-
-  // Abort old handle outside all locks to avoid holding mutexes during
-  // ROS2 action server communication.
-  if (old_handle_to_abort) {
-    RCLCPP_DEBUG(rclcpp::get_logger(name_),
-                 "[ControllerAction] Aborting old goal_handle %p due to preempt",
-                 old_handle_to_abort.get());
-    auto result = std::make_shared<ActionFollowPath::Result>();
-    result->outcome = ActionFollowPath::Result::CANCELED;
-    result->message = "Preempted by a newer FollowPath goal";
-    old_handle_to_abort->abort(result);
-  }
 
   if (!update_plan) {
     // Otherwise run parent version of this method.
@@ -252,6 +237,7 @@ void ControllerAction::runImpl(const GoalHandlePtr& goal_handle,
   while (controller_active && rclcpp::ok()) {
     // Consume any pending preempt goal handle (set by start() under goal_mtx_).
     // This is the only thread-safe way to switch handles mid-execution.
+    GoalHandlePtr preempted_handle_to_abort;
     {
       std::lock_guard<std::mutex> gp_guard(goal_mtx_);
       if (pending_goal_handle_) {
@@ -260,7 +246,18 @@ void ControllerAction::runImpl(const GoalHandlePtr& goal_handle,
                      pending_goal_handle_.get());
         current_handle = pending_goal_handle_;
         pending_goal_handle_.reset();
+        preempted_handle_to_abort = pending_preempted_goal_handle_;
+        pending_preempted_goal_handle_.reset();
       }
+    }
+    if (preempted_handle_to_abort && preempted_handle_to_abort->is_active()) {
+      RCLCPP_DEBUG(rclcpp::get_logger(name_),
+                   "[ControllerAction] Aborting old goal_handle %p due to preempt",
+                   preempted_handle_to_abort.get());
+      auto result = std::make_shared<ActionFollowPath::Result>();
+      result->outcome = ActionFollowPath::Result::CANCELED;
+      result->message = "Preempted by a newer FollowPath goal";
+      preempted_handle_to_abort->abort(result);
     }
 
     // Update robot pose
@@ -439,6 +436,16 @@ void ControllerAction::runImpl(const GoalHandlePtr& goal_handle,
       execution.waitForStateUpdate(std::chrono::milliseconds(500));
     } else {
       RCLCPP_DEBUG(rclcpp::get_logger(name_), "[ControllerAction] Controller loop ended for goal_handle %p", current_handle.get());
+    }
+  }
+
+  {
+    std::lock_guard<std::mutex> gp_guard(goal_mtx_);
+    if (pending_goal_handle_ == current_handle) {
+      pending_goal_handle_.reset();
+    }
+    if (pending_preempted_goal_handle_ == current_handle) {
+      pending_preempted_goal_handle_.reset();
     }
   }
 }

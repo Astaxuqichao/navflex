@@ -11,6 +11,8 @@
 | `navflex_bt_navigator` | BT Navigator 启动封装与 Navflex 行为树 XML |
 | `navflex_bt_nodes` | 自定义 BehaviorTree 节点（GetPath、ExePath、Recovery），供 BT Navigator 调用；ExePath 支持运行中接收重规划路径更新 |
 | `navflex_cmdbehavior` | Nav2 恢复行为插件，实现 `nav2_core::Behavior` 接口 |
+| `navflex_exclusion_zone` | Nav2 costmap 电子禁区层插件，通过话题动态接收多边形禁区并标记为 lethal obstacle |
+| `navflex_instruction_server` | 文本指令、语义任务和 VLN/VLM 桥接入口，将自然语言/结构化任务安全转换为 Navflex 导航能力 |
 | `navflex_utility` | 公共工具库，提供 `RobotInformation`、`OdometryHelper`、路径/导航异常类型等 |
 | `omni_fake_node` | 全向轮虚拟机器人节点，支持 vx/vy/wz 速度指令，用于无实体硬件时的 Nav2 仿真测试 |
 | `simulation_lidar` | 基于 `OccupancyGrid` 地图的 2D 仿真激光雷达，发布 `LaserScan` 与 `PointCloud2`，支持噪声、射线投射、未知区域障碍 |
@@ -200,8 +202,78 @@ ros2 launch navflex_bringup navflex_bringup_launch.py use_sim_time:=true
 
 在 RViz 中使用 **2D Goal Pose** 工具发布目标点，默认将直接使用 `bt_navigator` 的 NavigateToPose action，由 `navflex_bt_navigator` 的行为树完成规划、控制和恢复逻辑。
 
-## TODO
-1. 根据实际场景继续完善全局重规划、恢复策略和路网导航行为树
+## AI / VLN 语义任务入口
+
+`navflex_instruction_server` 在基础导航栈之上提供三层面向 AI/VLN 的入口：
+
+- `navflex_semantic_map_server.py`：维护语义地标/区域，提供 `/navflex_semantic_map/query_target`、`/update_landmark`、`/list_landmarks`
+- `navflex_task_server.py`：接收结构化任务或自然语言任务，先做 schema 校验和语义 grounding，再调用 `/navflex_instruction/execute`
+- `navflex_vln_bridge.py`：接收外部 VLM/VLN/LLM 输出，归一化为 Navflex task schema，再转给任务层，避免模型直接控制底盘
+
+启动完整 AI/VLN 任务栈：
+
+```bash
+ros2 launch navflex_instruction_server task_stack.launch.py
+```
+
+默认会加载包内示例语义地图 `params/semantic_landmarks.yaml`，其中包含
+`charging_station` / `充电桩`、`kitchen` / `厨房` 和 `corridor` / `走廊`。
+也可以替换成自己的语义地图：
+
+```bash
+ros2 launch navflex_instruction_server task_stack.launch.py \
+  semantic_params_file:=/path/to/semantic_landmarks.yaml
+```
+
+### 最小体验流程
+
+先编译并启动任务栈：
+
+```bash
+colcon build --packages-select navflex_instruction_server
+source install/setup.bash
+ros2 launch navflex_instruction_server task_stack.launch.py
+```
+
+另开一个终端，查询示例语义目标：
+
+```bash
+source install/setup.bash
+ros2 service call /navflex_semantic_map/query_target \
+  navflex_instruction_server/srv/QuerySemanticTarget \
+  "{query: '充电桩'}"
+```
+
+体验自然语言任务 dry-run，不会触发真实导航执行：
+
+```bash
+ros2 service call /navflex_task/execute \
+  navflex_instruction_server/srv/ExecuteTask \
+  "{instruction: '去充电桩', execute: false, dry_run: true}"
+```
+
+体验 VLN/VLM 桥接 dry-run：
+
+```bash
+ros2 service call /navflex_vln/interpret \
+  navflex_instruction_server/srv/InterpretVln \
+  "{instruction: '带我去充电桩', model_output_json: '{\"action\":\"semantic_navigate\",\"target\":\"charging_station\"}', execute: false, dry_run: true}"
+```
+
+结构化任务 schema 示例：
+
+```json
+{
+  "action": "semantic_navigate",
+  "target": "charging_station",
+  "target_type": "charger",
+  "constraints": ["avoid_crowd"],
+  "confirmation_required": false
+}
+```
+
+真正执行任务时，将 `execute` 设为 `true`，并确保 `navflex_costmap_nav`、
+`bt_navigator` 等底层导航服务已经启动。
 
 ## License
 
