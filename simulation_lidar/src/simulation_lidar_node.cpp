@@ -53,8 +53,9 @@ SimulationLidar::SimulationLidar(const rclcpp::NodeOptions & options)
 
   step_ = (max_angle_ - min_angle_) / (point_size_ - 1);
 
-  scan_pub_ = create_publisher<sensor_msgs::msg::LaserScan>("scan", 10);
-  cloud_pub_ = create_publisher<sensor_msgs::msg::PointCloud2>("scan_cloud", 10);
+  const auto sensor_qos = rclcpp::SensorDataQoS();
+  scan_pub_ = create_publisher<sensor_msgs::msg::LaserScan>("scan", sensor_qos);
+  cloud_pub_ = create_publisher<sensor_msgs::msg::PointCloud2>("scan_cloud", sensor_qos);
 
   rclcpp::QoS qos(rclcpp::KeepLast(1));
   qos.transient_local();
