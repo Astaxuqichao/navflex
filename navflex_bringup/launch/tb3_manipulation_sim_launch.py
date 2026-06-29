@@ -2,7 +2,14 @@ import os
 
 from ament_index_python.packages import get_package_share_directory
 from launch import LaunchDescription
-from launch.actions import DeclareLaunchArgument, IncludeLaunchDescription, LogInfo, RegisterEventHandler
+from launch.actions import (
+    AppendEnvironmentVariable,
+    DeclareLaunchArgument,
+    IncludeLaunchDescription,
+    LogInfo,
+    RegisterEventHandler,
+    SetEnvironmentVariable,
+)
 from launch.conditions import IfCondition
 from launch.event_handlers import OnProcessExit
 from launch.launch_description_sources import PythonLaunchDescriptionSource
@@ -18,6 +25,8 @@ def generate_launch_description():
 
     world = LaunchConfiguration('world')
     map_yaml_file = LaunchConfiguration('map')
+    verbose = LaunchConfiguration('verbose')
+    gazebo_master_uri = LaunchConfiguration('gazebo_master_uri')
     gui = LaunchConfiguration('gui')
     rviz = LaunchConfiguration('rviz')
     rviz_config_file = LaunchConfiguration('rviz_config')
@@ -55,7 +64,7 @@ def generate_launch_description():
     gzserver = IncludeLaunchDescription(
         PythonLaunchDescriptionSource(gzserver_launch),
         launch_arguments={
-            'verbose': 'false',
+            'verbose': verbose,
             'world': world,
         }.items())
 
@@ -156,15 +165,41 @@ def generate_launch_description():
 
     return LaunchDescription([
         DeclareLaunchArgument(
+            'gazebo_master_uri',
+            default_value='http://127.0.0.1:11346',
+            description='Gazebo master URI used by gzserver and gzclient'),
+        AppendEnvironmentVariable(
+            'GAZEBO_RESOURCE_PATH',
+            '/usr/share/gazebo-11'),
+        AppendEnvironmentVariable(
+            'GAZEBO_MODEL_PATH',
+            '/usr/share/gazebo-11/models'),
+        AppendEnvironmentVariable(
+            'GAZEBO_MODEL_PATH',
+            os.path.join(tb3_manip_gazebo_dir, 'models')),
+        AppendEnvironmentVariable(
+            'GAZEBO_PLUGIN_PATH',
+            '/opt/ros/humble/lib'),
+        SetEnvironmentVariable(
+            'GAZEBO_MODEL_DATABASE_URI',
+            ''),
+        SetEnvironmentVariable(
+            'GAZEBO_MASTER_URI',
+            gazebo_master_uri),
+        DeclareLaunchArgument(
             'world',
             default_value=os.path.join(
-                tb3_manip_gazebo_dir, 'worlds', 'turtlebot3_home_service_challenge.world'),
+                navflex_bringup_dir, 'worlds', 'large_bright_room.world'),
             description='Gazebo world file'),
         DeclareLaunchArgument(
             'map',
             default_value=os.path.join(
-                navflex_bringup_dir, 'maps', 'tb3_home_service_challenge.yaml'),
+                navflex_bringup_dir, 'maps', 'large_bright_room.yaml'),
             description='Map yaml file loaded by nav2_map_server'),
+        DeclareLaunchArgument(
+            'verbose',
+            default_value='true',
+            description='Print verbose Gazebo server output'),
         DeclareLaunchArgument(
             'gui',
             default_value='false',

@@ -208,14 +208,25 @@ gzclient
 
 | 参数 | 默认值 | 说明 |
 | --- | --- | --- |
-| `world` | `turtlebot3_home_service_challenge.world` | Gazebo world |
-| `map` | `maps/tb3_home_service_challenge.yaml` | map_server 加载的地图 |
+| `world` | `worlds/large_bright_room.world` | Gazebo world |
+| `map` | `maps/large_bright_room.yaml` | map_server 加载的地图 |
+| `verbose` | `true` | 是否输出 Gazebo server 详细日志 |
+| `gazebo_master_uri` | `http://127.0.0.1:11346` | Gazebo master 地址 |
 | `gui` | `false` | 是否启动 Gazebo GUI |
 | `rviz` | `true` | 是否启动 RViz |
 | `rviz_config` | `rviz/nav2_default_view.rviz` | RViz 配置 |
 | `spawn_controllers` | `true` | 是否启动 ros2_control controllers |
 | `use_sim_time` | `true` | 使用 Gazebo `/clock` |
 | `x_pose` / `y_pose` / `yaw` | `0.0` | 初始位姿 |
+
+较大的明亮测试环境可这样启动：
+
+```bash
+ros2 launch navflex_bringup tb3_manipulation_sim_launch.py \
+  world:=$(ros2 pkg prefix navflex_bringup)/share/navflex_bringup/worlds/large_bright_room.world \
+  map:=$(ros2 pkg prefix navflex_bringup)/share/navflex_bringup/maps/large_bright_room.yaml \
+  gui:=true
+```
 
 TB3 差速参数摘要：
 
