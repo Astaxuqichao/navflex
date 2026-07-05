@@ -345,7 +345,7 @@ navflex_planner_server:
       visualization_topic_prefix: "frontier_exploration"
       shared_map: true
       shared_map_key: "default"
-      resolution: 0.4
+      resolution: 0.2
       depth_levels: 16
       insert_depth: 0
       insert_discrete: true
@@ -395,7 +395,7 @@ navflex_planner_server:
       visualization_topic_prefix: "frontier_exploration"
       shared_map: true
       shared_map_key: "default"
-      resolution: 0.4
+      resolution: 0.2
       depth_levels: 16
       insert_depth: 0
       insert_discrete: true
