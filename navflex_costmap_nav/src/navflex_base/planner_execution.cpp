@@ -656,6 +656,12 @@ uint32_t PlannerExecution::makePlan(const geometry_msgs::msg::PoseStamped& start
                         "(outcome=%u, retry=%d, elapsed=%.2fs/patience=%.1fs) | %s",
                         outcome, retries + 1, elapsed, patience_.seconds(),
                         planning_message.empty() ? "no message" : planning_message.c_str());
+
+            const auto retry_delay = frequency_ > 0.0
+              ? std::chrono::duration<double>(1.0 / frequency_)
+              : std::chrono::duration<double>(0.1);
+            std::unique_lock<std::mutex> wait_lock(state_wait_mutex_);
+            condition_.wait_for(wait_lock, retry_delay);
           }
         }
       } // while (planning_ && ros::ok())

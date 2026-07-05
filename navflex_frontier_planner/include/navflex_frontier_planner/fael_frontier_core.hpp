@@ -1,0 +1,225 @@
+#ifndef NAVFLEX_FRONTIER_PLANNER__FAEL_FRONTIER_CORE_HPP_
+#define NAVFLEX_FRONTIER_PLANNER__FAEL_FRONTIER_CORE_HPP_
+
+#include <memory>
+#include <mutex>
+#include <optional>
+#include <map>
+#include <string>
+#include <unordered_map>
+#include <unordered_set>
+#include <vector>
+
+#include "geometry_msgs/msg/pose_stamped.hpp"
+#include "geometry_msgs/msg/transform_stamped.hpp"
+#include "nav2_costmap_2d/costmap_2d_ros.hpp"
+#include "nav_msgs/msg/path.hpp"
+#include "rclcpp_lifecycle/lifecycle_node.hpp"
+#include "sensor_msgs/msg/point_cloud2.hpp"
+#include "tf2_ros/buffer.h"
+#include "ufo/map/code.h"
+#include "ufo/map/occupancy_map.h"
+#include "visualization_msgs/msg/marker_array.hpp"
+
+namespace navflex_frontier_planner
+{
+
+struct Point3
+{
+  double x{0.0};
+  double y{0.0};
+  double z{0.0};
+
+  double distanceXY(const Point3 & other) const;
+  double distance(const Point3 & other) const;
+};
+
+struct Candidate
+{
+  Point3 point;
+  std::vector<Point3> frontiers;
+  double score{0.0};
+};
+
+struct RoadGraph
+{
+  std::vector<Point3> nodes;
+  std::vector<std::vector<std::size_t>> edges;
+};
+
+class FaelFrontierCore
+{
+public:
+  void configure(
+    const rclcpp_lifecycle::LifecycleNode::WeakPtr & parent,
+    const std::string & name,
+    std::shared_ptr<tf2_ros::Buffer> tf,
+    std::shared_ptr<nav2_costmap_2d::Costmap2DROS> costmap_ros);
+
+  void activate();
+  void deactivate();
+  void cleanup();
+
+  std::optional<Candidate> selectCandidate(
+    const geometry_msgs::msg::PoseStamped & start,
+    const geometry_msgs::msg::PoseStamped & requested_goal);
+
+  std::vector<Candidate> selectCandidates(
+    const geometry_msgs::msg::PoseStamped & start,
+    const geometry_msgs::msg::PoseStamped & requested_goal);
+
+  nav_msgs::msg::Path makeCandidatePath(
+    const geometry_msgs::msg::PoseStamped & start,
+    const Candidate & candidate) const;
+
+  nav_msgs::msg::Path makeCandidatePath(
+    const geometry_msgs::msg::PoseStamped & start,
+    const std::vector<Candidate> & candidates) const;
+
+  nav_msgs::msg::Path makeAStarPath(
+    const geometry_msgs::msg::PoseStamped & start,
+    const Candidate & candidate) const;
+
+  nav_msgs::msg::Path makeAStarPath(
+    const geometry_msgs::msg::PoseStamped & start,
+    const Candidate & candidate,
+    const std::vector<Candidate> & topology) const;
+
+  std::string frameId() const {return frame_id_;}
+
+private:
+  using FrontierSet = std::unordered_set<ufo::map::Code, ufo::map::Code::Hash>;
+
+public:
+  struct SharedMapState
+  {
+    mutable std::mutex mutex;
+    std::unique_ptr<ufo::map::OccupancyMap> map;
+    FrontierSet changed_cell_codes;
+    FrontierSet known_cell_codes;
+    FrontierSet local_frontier_cells;
+    FrontierSet global_frontier_cells;
+    std::vector<Candidate> candidates;
+    rclcpp::Time candidates_stamp;
+    std::string candidates_owner;
+    RoadGraph road_graph;
+    std::vector<Point3> visited_positions;
+    rclcpp::Subscription<sensor_msgs::msg::PointCloud2>::SharedPtr cloud_sub;
+    std::string owner_name;
+  };
+
+private:
+
+  void pointCloudCallback(const sensor_msgs::msg::PointCloud2::SharedPtr msg);
+  std::shared_ptr<SharedMapState> getSharedMapState(
+    const std::string & key,
+    double resolution,
+    int depth_levels);
+
+  ufo::map::Point3 toUfoPoint(const Point3 & point) const;
+  Point3 fromUfoPoint(const ufo::map::Point3 & point) const;
+  Point3 codeToPoint(const ufo::map::Code & code) const;
+  bool isNearOccupied(const Point3 & point, double radius) const;
+  bool isNearUnknown(const Point3 & point, double radius) const;
+  bool isFrontier(const ufo::map::Code & code) const;
+  bool isCollisionFree(const Point3 & from, const Point3 & to) const;
+  bool isSuitableViewpoint(const Point3 & point, const Point3 & current) const;
+  double unknownGainBeyondFrontier(const Point3 & viewpoint, const Point3 & frontier) const;
+
+  void frontierSearch(const Point3 & current);
+  void findLocalFrontiers(const Point3 & current);
+  void updateGlobalFrontiers(const Point3 & current);
+  std::vector<Point3> getGlobalFrontiers() const;
+  std::vector<Point3> sampleViewpoints(const Point3 & current) const;
+  RoadGraph buildRoadGraph(const Point3 & current, const std::vector<Candidate> & candidates) const;
+  std::vector<Candidate> attachFrontiers(
+    const std::vector<Point3> & viewpoints,
+    const std::vector<Point3> & frontiers,
+    const Point3 & current) const;
+
+  std::vector<Point3> shortestPath2D(const Point3 & start, const Point3 & goal) const;
+  std::vector<Point3> shortestPathRoadGraph(
+    const Point3 & start,
+    const Candidate & goal,
+    const RoadGraph & graph) const;
+  void publishCandidates(const std::vector<Candidate> & candidates, const Candidate * selected) const;
+
+  rclcpp_lifecycle::LifecycleNode::WeakPtr node_;
+  rclcpp::Logger logger_{rclcpp::get_logger("FaelFrontierCore")};
+  rclcpp::Clock::SharedPtr clock_;
+  std::shared_ptr<tf2_ros::Buffer> tf_;
+
+  rclcpp_lifecycle::LifecyclePublisher<visualization_msgs::msg::MarkerArray>::SharedPtr candidate_pub_;
+  rclcpp_lifecycle::LifecyclePublisher<visualization_msgs::msg::MarkerArray>::SharedPtr topology_pub_;
+  rclcpp_lifecycle::LifecyclePublisher<geometry_msgs::msg::PoseStamped>::SharedPtr selected_candidate_pub_;
+  rclcpp_lifecycle::LifecyclePublisher<sensor_msgs::msg::PointCloud2>::SharedPtr occupied_map_pub_;
+  rclcpp_lifecycle::LifecyclePublisher<sensor_msgs::msg::PointCloud2>::SharedPtr free_map_pub_;
+
+  std::shared_ptr<SharedMapState> map_state_;
+
+  std::string name_;
+  std::string frame_id_{"map"};
+  std::string point_cloud_topic_{"point_cloud"};
+  std::string visualization_topic_prefix_{"frontier_exploration"};
+  bool shared_map_{true};
+  std::string shared_map_key_{"default"};
+  double resolution_{0.2};
+  int depth_levels_{16};
+  int insert_depth_{0};
+  bool insert_discrete_{false};
+  bool simple_ray_casting_{false};
+  int early_stopping_{0};
+  bool publish_map_clouds_{true};
+  double map_publish_period_{1.0};
+  double max_range_{30.0};
+  double sample_dist_{1.0};
+  double local_range_{30.0};
+  double frontier_dist_{2.0};
+  double road_graph_dist_{3.0};
+  int road_graph_connectable_num_{8};
+  double viewpoint_gain_threshold_{2.0};
+  double min_frontier_area_{0.05};
+  double candidate_separation_{1.0};
+  double frontier_distance_weight_{0.1};
+  int min_candidate_count_{8};
+  int max_candidate_count_{10};
+  double frontier_gain_{1.0};
+  double unknown_gain_range_{1.5};
+  double unknown_gain_step_{0.2};
+  double min_unknown_gain_{1.0};
+  double distance_weight_{1.0};
+  double visited_radius_{1.5};
+  double visited_penalty_{1000.0};
+  double known_gain_penalty_{0.25};
+  double min_candidate_dist_{0.5};
+  double min_robot_frontier_dist_{0.6};
+  double robot_clear_radius_{0.3};
+  double unknown_clear_radius_{0.3};
+  double sensor_height_{0.5};
+  double frontier_slope_deg_{5.0};
+  double viewpoint_slope_deg_{15.0};
+  rclcpp::Time last_map_publish_time_;
+
+  void publishMapClouds();
+  void publishTopology(
+    const std::vector<Candidate> & candidates,
+    const Point3 & current,
+    const Candidate * selected) const;
+
+  struct ViewpointDebug
+  {
+    std::size_t sampled{0};
+    std::size_t outside_range{0};
+    std::size_t not_free{0};
+    std::size_t near_occupied{0};
+    std::size_t near_unknown{0};
+    std::size_t too_close{0};
+    std::size_t collision{0};
+  };
+
+  mutable ViewpointDebug last_viewpoint_debug_;
+};
+
+}  // namespace navflex_frontier_planner
+
+#endif  // NAVFLEX_FRONTIER_PLANNER__FAEL_FRONTIER_CORE_HPP_

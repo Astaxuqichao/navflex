@@ -74,6 +74,8 @@ private:
   double min_dis_, max_dis_;
   double noise_;
   double rate_;
+  double cloud_wall_height_;
+  double cloud_wall_step_;
   int point_size_;
   bool use_topic_odom_;
   bool use_sim_time_;

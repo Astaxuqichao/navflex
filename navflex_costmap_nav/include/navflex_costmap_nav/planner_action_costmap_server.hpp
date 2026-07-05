@@ -5,6 +5,7 @@
 #include <memory>
 #include <mutex>
 #include <string>
+#include <thread>
 #include <unordered_map>
 #include <vector>
 
@@ -230,8 +231,8 @@ class PlannerCostmapServer : public nav2_util::LifecycleNode {
 
   /// Dedicated callback group to prevent execute from blocking goal/cancel responses
   rclcpp::CallbackGroup::SharedPtr action_cb_group_;
-  rclcpp::executors::SingleThreadedExecutor::SharedPtr action_executor_;
-  std::unique_ptr<nav2_util::NodeThread> action_executor_thread_;
+  rclcpp::executors::MultiThreadedExecutor::SharedPtr action_executor_;
+  std::unique_ptr<std::thread> action_executor_thread_;
 
   /// Planner action wrapper managing concurrent executions
   PlannerAction::Ptr planner_action_;

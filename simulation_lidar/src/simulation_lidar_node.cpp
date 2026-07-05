@@ -6,6 +6,7 @@
 #include <limits>
 #include <tf2_ros/transform_broadcaster.h>
 #include <geometry_msgs/msg/transform_stamped.hpp>
+#include <algorithm>
 
 
 
@@ -25,10 +26,12 @@ SimulationLidar::SimulationLidar(const rclcpp::NodeOptions & options)
   declare_parameter("min_angle", -M_PI);
   declare_parameter("max_angle",  M_PI);
   declare_parameter("min_distance", 0.15);
-  declare_parameter("max_distance", 6.0);
+  declare_parameter("max_distance", 30.0);
   declare_parameter("noise", 0.0);
   declare_parameter("size", 400);
   declare_parameter("rate", 10.0);
+  declare_parameter("cloud_wall_height", 1.0);
+  declare_parameter("cloud_wall_step", 0.1);
   declare_parameter("use_topic_odom", false);
 
   declare_parameter("odom_topic", "/odom");
@@ -44,6 +47,8 @@ SimulationLidar::SimulationLidar(const rclcpp::NodeOptions & options)
   get_parameter("noise", noise_);
   get_parameter("size", point_size_);
   get_parameter("rate", rate_);
+  get_parameter("cloud_wall_height", cloud_wall_height_);
+  get_parameter("cloud_wall_step", cloud_wall_step_);
   get_parameter("use_topic_odom", use_topic_odom_);
 
   get_parameter("odom_topic", odom_topic_);
@@ -52,6 +57,8 @@ SimulationLidar::SimulationLidar(const rclcpp::NodeOptions & options)
   get_parameter("lidar_frame", lidar_frame_);
 
   step_ = (max_angle_ - min_angle_) / (point_size_ - 1);
+  cloud_wall_height_ = std::max(0.0, cloud_wall_height_);
+  cloud_wall_step_ = std::max(0.01, cloud_wall_step_);
 
   const auto sensor_qos = rclcpp::SensorDataQoS();
   scan_pub_ = create_publisher<sensor_msgs::msg::LaserScan>("scan", sensor_qos);
@@ -150,7 +157,7 @@ void SimulationLidar::generateFrame(sensor_msgs::msg::LaserScan & scan)
     else
     {
       float noisy_dis = dis + (noise_ > 0.0 ? static_cast<float>(gaussian(0.0, noise_)) : 0.0f);
-      if (noisy_dis < min_dis_ || noisy_dis > max_dis_)
+      if (noisy_dis < min_dis_ || noisy_dis >= max_dis_)
       {
         scan.ranges[i] = std::numeric_limits<float>::infinity();
         scan.intensities[i] = 0.0;
@@ -205,27 +212,36 @@ void SimulationLidar::publishPointCloud2(const sensor_msgs::msg::LaserScan & sca
   sensor_msgs::PointCloud2Modifier modifier(cloud);
   modifier.setPointCloud2FieldsByString(1, "xyz");
 
-  // Count valid points
+  const int vertical_samples =
+    std::max(1, static_cast<int>(std::floor(cloud_wall_height_ / cloud_wall_step_)) + 1);
+
+  // Count valid columns. Each valid 2D hit is expanded into a vertical wall.
   std::vector<std::pair<float, float>> pts;
   pts.reserve(point_size_);
   for (int i = 0; i < point_size_; ++i) {
     float r = scan.ranges[i];
-    if (!std::isfinite(r) || r < scan.range_min || r > scan.range_max) continue;
+    if (!std::isfinite(r) || r < scan.range_min || r >= scan.range_max) continue;
     float angle = scan.angle_min + i * scan.angle_increment;
     pts.emplace_back(r * std::cos(angle), r * std::sin(angle));
   }
 
-  cloud.width = pts.size();
-  modifier.resize(pts.size());
+  const auto total_points = pts.size() * static_cast<std::size_t>(vertical_samples);
+  cloud.width = static_cast<uint32_t>(total_points);
+  modifier.resize(total_points);
 
   sensor_msgs::PointCloud2Iterator<float> iter_x(cloud, "x");
   sensor_msgs::PointCloud2Iterator<float> iter_y(cloud, "y");
   sensor_msgs::PointCloud2Iterator<float> iter_z(cloud, "z");
   for (auto & [px, py] : pts) {
-    *iter_x = px;
-    *iter_y = py;
-    *iter_z = 0.0f;
-    ++iter_x; ++iter_y; ++iter_z;
+    for (int iz = 0; iz < vertical_samples; ++iz) {
+      const float z = vertical_samples == 1 ? 0.0f :
+        static_cast<float>(
+          std::min(cloud_wall_height_, static_cast<double>(iz) * cloud_wall_step_));
+      *iter_x = px;
+      *iter_y = py;
+      *iter_z = z;
+      ++iter_x; ++iter_y; ++iter_z;
+    }
   }
 
   cloud_pub_->publish(cloud);

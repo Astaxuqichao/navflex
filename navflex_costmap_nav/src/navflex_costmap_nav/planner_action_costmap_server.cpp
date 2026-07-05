@@ -155,12 +155,20 @@ nav2_util::CallbackReturn PlannerCostmapServer::on_configure(
   planner_action_ =
       std::make_shared<PlannerAction>(node, name_action_get_path_, robot_info_);
 
-  // Dedicated executor (false = not auto-added to node executor) mirroring SimpleActionServer spin_thread=true
+  // Dedicated executor (false = not auto-added to node executor) mirroring
+  // SimpleActionServer spin_thread=true. Reentrant + two threads keeps the
+  // goal response/cancel callbacks responsive while an accepted goal is being
+  // handed off to the planner execution thread.
   action_cb_group_ = node->get_node_base_interface()->create_callback_group(
-      rclcpp::CallbackGroupType::MutuallyExclusive, false);
-  action_executor_ = std::make_shared<rclcpp::executors::SingleThreadedExecutor>();
+      rclcpp::CallbackGroupType::Reentrant, false);
+  action_executor_ =
+      std::make_shared<rclcpp::executors::MultiThreadedExecutor>(
+          rclcpp::ExecutorOptions(), 2);
   action_executor_->add_callback_group(action_cb_group_, node->get_node_base_interface());
-  action_executor_thread_ = std::make_unique<nav2_util::NodeThread>(action_executor_);
+  action_executor_thread_ =
+      std::make_unique<std::thread>([executor = action_executor_]() {
+        executor->spin();
+      });
 
   action_server_get_path_ptr_ = rclcpp_action::create_server<ActionToPose>(
       node, name_action_get_path_,
@@ -322,13 +330,18 @@ nav2_util::CallbackReturn PlannerCostmapServer::on_cleanup(
     const rclcpp_lifecycle::State& /*state*/) {
   RCLCPP_INFO(get_logger(), "Cleaning up Planner server");
 
-  action_executor_thread_.reset();
-  action_executor_.reset();
-
   // Break the circular reference: rclcpp_action server holds
   // NodeBaseInterface::SharedPtr back to this node, preventing destruction
   // unless we explicitly reset it here.
   action_server_get_path_ptr_.reset();
+  if (action_executor_) {
+    action_executor_->cancel();
+  }
+  if (action_executor_thread_ && action_executor_thread_->joinable()) {
+    action_executor_thread_->join();
+  }
+  action_executor_thread_.reset();
+  action_executor_.reset();
   planner_action_.reset();
   tf_.reset();
 

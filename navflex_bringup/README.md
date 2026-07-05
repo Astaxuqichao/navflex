@@ -60,6 +60,17 @@ rosdep install --from-paths src --ignore-src -r -y
 
 ## 编译
 
+工作区默认不编译 `src/FAEL`。FAEL 是 ROS 1 参考实现，当前 ROS 2
+工作区只将其作为算法参考；仓库根目录已放置：
+
+```text
+src/FAEL/COLCON_IGNORE
+```
+
+因此直接执行 `colcon build` 时会自动跳过 FAEL，不需要额外
+`--packages-ignore` 参数。如果确实需要单独处理 FAEL，请先移除或临时改名
+`src/FAEL/COLCON_IGNORE`，并使用对应的 ROS 1/catkin 环境。
+
 因为 `FollowPath.action` 已扩展了 `xy_goal_tolerance` 和 `yaw_goal_tolerance`，修改 action 后需要重编依赖它的包。推荐直接编译整个工作区：
 
 ```bash
@@ -74,7 +85,7 @@ source install/setup.bash
 colcon build --packages-select \
   nav2_msgs nav2_behavior_tree nav2_bt_navigator \
   navflex_costmap_nav navflex_bt_nodes navflex_bt_navigator \
-  navflex_bringup omni_fake_node simulation_lidar
+  navflex_frontier_planner navflex_bringup omni_fake_node simulation_lidar
 source install/setup.bash
 ```
 

@@ -1,0 +1,12 @@
+<library path="navflex_frontier_planner">
+  <class name="navflex_frontier_planner/CandidateFrontierPlanner"
+         type="navflex_frontier_planner::CandidateFrontierPlanner"
+         base_class_type="nav2_core::GlobalPlanner">
+    <description>Detects frontier clusters and returns a short path to the selected candidate point.</description>
+  </class>
+  <class name="navflex_frontier_planner/FrontierAStarPlanner"
+         type="navflex_frontier_planner::FrontierAStarPlanner"
+         base_class_type="nav2_core::GlobalPlanner">
+    <description>Selects a frontier candidate and plans an internal FAEL-style voxel/free-space A* path to it.</description>
+  </class>
+</library>
