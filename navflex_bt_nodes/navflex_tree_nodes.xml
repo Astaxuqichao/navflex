@@ -46,7 +46,7 @@
       </input_port>
       <input_port name="server_timeout"
                   type="double"
-                  default="10.0">
+                  default="1000">
         Timeout waiting for the action server (seconds)
       </input_port>
 
@@ -76,7 +76,7 @@
       </input_port>
       <input_port name="server_timeout"
                   type="double"
-                  default="10.0">
+                  default="1000">
         Timeout waiting for the action server (seconds)
       </input_port>
     </Action>
@@ -114,7 +114,7 @@
       </input_port>
       <input_port name="server_timeout"
                   type="double"
-                  default="10.0">
+                  default="1000">
         Timeout waiting for the action server (seconds)
       </input_port>
       <!-- ── Outputs ── -->
@@ -169,7 +169,7 @@
       </input_port>
       <input_port name="server_timeout"
                   type="double"
-                  default="10.0">
+                  default="1000">
         Timeout waiting for the action server (seconds)
       </input_port>
     </Action>
@@ -198,7 +198,7 @@
       </input_port>
       <input_port name="server_timeout"
                   type="double"
-                  default="10.0">
+                  default="1000">
         Timeout waiting for the action server (seconds)
       </input_port>
       <!-- ── Outputs ── -->
@@ -227,7 +227,7 @@
       </input_port>
       <input_port name="server_timeout"
                   type="double"
-                  default="10.0">
+                  default="1000">
         Timeout waiting for the action server (seconds)
       </input_port>
     </Action>

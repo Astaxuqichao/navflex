@@ -15,7 +15,8 @@ Nav2 costmap:
   and preserving old frontiers outside sensor range;
 - sample candidate viewpoints around the robot;
 - attach visible frontiers to viewpoints and select a high-gain candidate;
-- plan to that candidate through the FAEL-style topology road graph.
+- for `FrontierAStar`, plan to that candidate through the FAEL-style topology
+  road graph.
 
 ## Plugins
 
@@ -89,8 +90,9 @@ The package also publishes RViz visualization markers on:
 - `fael_topology_graph_nodes` and `fael_topology_graph_edges`: the traversable
   FAEL-style road graph sampled from local free space and used by the A*
   planner. These nodes are independent from the candidate viewpoint set.
-- `fael_selected_viewpoint` and `fael_best_topology_path`: the selected target
-  and the graph path to it.
+- `fael_selected_viewpoint`: the currently selected candidate target.
+- `fael_best_topology_path`: the graph path to the selected target. This path
+  is computed and published only when `FrontierAStar` is triggered.
 
 The accumulated UFOMap can be inspected through debug PointCloud2 topics:
 
@@ -122,29 +124,45 @@ navflex_planner_server:
       plugin: "navflex_frontier_planner/CandidateFrontierPlanner"
       frame_id: "map"
       point_cloud_topic: "/point_cloud"
-      resolution: 0.2
+      resolution: 0.4
       depth_levels: 16
       insert_depth: 0
-      insert_discrete: false
+      insert_discrete: true
       simple_ray_casting: false
       early_stopping: 0
       publish_map_clouds: true
       map_publish_period: 1.0
-      max_range: 30.0
+      max_range: 12.0
+      sample_dist: 1.0
+      local_range: 12.0
+      candidate_visibility_range: 11.5
+      reuse_cached_candidates: true
+      cache_robot_move_threshold: 1.0
+      candidate_recompute_period: 1.0
+      frontier_attach_grid_size: 0.4
+      global_frontier_revalidate_max_cells: 5000
 
     FrontierAStar:
       plugin: "navflex_frontier_planner/FrontierAStarPlanner"
       frame_id: "map"
       point_cloud_topic: "/point_cloud"
-      resolution: 0.2
+      resolution: 0.4
       depth_levels: 16
       insert_depth: 0
-      insert_discrete: false
+      insert_discrete: true
       simple_ray_casting: false
       early_stopping: 0
       publish_map_clouds: true
       map_publish_period: 1.0
-      max_range: 30.0
+      max_range: 12.0
+      sample_dist: 1.0
+      local_range: 12.0
+      candidate_visibility_range: 11.5
+      reuse_cached_candidates: true
+      cache_robot_move_threshold: 1.0
+      candidate_recompute_period: 1.0
+      frontier_attach_grid_size: 0.4
+      global_frontier_revalidate_max_cells: 5000
 ```
 
 If your global frame is `world` or `odom`, set `frame_id` accordingly.
@@ -212,6 +230,9 @@ to best score, and publishes the shared candidate/topology outputs:
 /frontier_exploration/topology_map
 ```
 
+`FrontierCandidate` does not compute the best topology route. It only refreshes
+candidate selection and topology graph visualization.
+
 ### Trigger frontier candidate plus topology planning
 
 Use planner ID `FrontierAStar`:
@@ -274,40 +295,48 @@ Common failure outcomes:
 | --- | ---: | --- |
 | `frame_id` | `map` | Global frame used for the internal exploration map. |
 | `point_cloud_topic` | `point_cloud` | Point cloud input topic. |
-| `resolution` | `0.2` | UFOMap resolution in meters. |
+| `resolution` | `0.4` | UFOMap resolution in meters, matching FAEL `UFOMap.resolution`. |
 | `depth_levels` | `16` | UFOMap tree depth levels. |
 | `insert_depth` | `0` | UFOMap insertion depth. |
-| `insert_discrete` | `false` | Use UFOMap discrete point cloud insertion. |
+| `insert_discrete` | `true` | Use UFOMap discrete point cloud insertion, matching FAEL. |
 | `simple_ray_casting` | `false` | Forwarded to UFOMap ray casting. |
 | `early_stopping` | `0` | Forwarded to UFOMap insertion. |
 | `publish_map_clouds` | `true` | Publish accumulated UFOMap free/occupied debug clouds. |
 | `map_publish_period` | `1.0` | Minimum period in seconds between map cloud publications. |
-| `max_range` | `30.0` | Maximum sensor insertion and frontier visibility range. |
+| `max_range` | `12.0` | Maximum sensor insertion and frontier visibility range, matching FAEL `UFOMap.max_range`. |
 | `sample_dist` | `1.0` | Viewpoint sampling spacing around the robot. |
-| `local_range` | `30.0` | Radius used for candidate viewpoint sampling. |
-| `frontier_dist` | `2.0` | Maximum topology edge distance between candidate points. |
-| `road_graph_dist` | `4.0` | Maximum connection distance for the FAEL-style free-space road graph. |
-| `road_graph_connectable_num` | `8` | Maximum nearby road-graph neighbors connected from each node. |
-| `viewpoint_gain_threshold` | `2.0` | Minimum FAEL-style information gain for a candidate viewpoint. |
+| `local_range` | `12.0` | Radius used for candidate viewpoint sampling; this follows FAEL's effective viewpoint range from `max_range`. |
+| `candidate_visibility_range` | `11.5` | Maximum range used when attaching frontiers to candidate viewpoints, matching FAEL's `max_range - 0.5` check. |
+| `reuse_cached_candidates` | `true` | Reuse candidate/topology results when the map is unchanged and the robot has barely moved. |
+| `cache_robot_move_threshold` | `1.0` | Maximum robot XY movement, in meters, allowed before recomputing cached candidates. |
+| `candidate_recompute_period` | `1.0` | Minimum cache reuse window in seconds, even if new point clouds updated the map. |
+| `frontier_attach_grid_size` | `0.4` | Grid size used to compact dense frontier cells into FAEL-style representative frontiers before attachment. |
+| `global_frontier_revalidate_max_cells` | `5000` | Maximum nearby old frontier cells revalidated per planning cycle; distant/overflow frontiers are retained like FAEL. |
+| `road_graph_dist` | `3.0` | Maximum connection distance for the FAEL-style free-space road graph, matching `Roadmap.connectable_range`. |
+| `road_graph_connectable_num` | `3` | Maximum nearby road-graph neighbors connected from each node, matching `Roadmap.connectable_num`. |
+| `viewpoint_gain_threshold` | `2.0` | Minimum FAEL-style information gain for a candidate viewpoint, matching `ViewpointManager.viewpoint_gain_thre`. |
 | `min_frontier_area` | `0.05` | Reject viewpoints covering less frontier area, in square meters. |
 | `candidate_separation` | `1.0` | Non-maximum-suppression distance between kept candidates. |
-| `frontier_distance_weight` | `0.1` | Distance decay applied when scoring visible frontiers. |
+| `frontier_distance_weight` | `0.0` | Distance decay applied when scoring visible frontiers; FAEL counts attached/visible frontiers directly. |
 | `min_candidate_count` | `8` | Target minimum candidate count; lower if not enough valid candidates exist. |
 | `max_candidate_count` | `10` | Maximum candidates kept after scoring and suppression. |
-| `frontier_gain` | `5.0` | Gain multiplier for unknown cells visible beyond each frontier. |
+| `frontier_gain` | `100.0` | Gain multiplier for visible frontiers, matching FAEL `RapidCoverPlanner.frontier_gain`. |
 | `unknown_gain_range` | `1.5` | Distance sampled beyond each frontier to confirm unknown space. |
 | `unknown_gain_step` | `0.2` | Step size for unknown-space gain sampling beyond frontiers. |
-| `min_unknown_gain` | `1.0` | Minimum unknown cells beyond a frontier before it contributes gain. |
-| `distance_weight` | `1.0` | Penalty weight for distance from robot to candidate. |
+| `min_unknown_gain` | `0.0` | Minimum unknown cells beyond a frontier before it contributes gain. |
+| `distance_weight` | `0.1` | Penalty weight for distance from robot to candidate. |
 | `visited_radius` | `1.5` | Radius around previous robot poses treated as already visited. |
 | `visited_penalty` | `1000.0` | Score penalty for candidates inside visited areas. |
 | `known_gain_penalty` | `0.02` | Small score penalty for candidates surrounded by already-free cells. |
 | `min_candidate_dist` | `0.5` | Reject candidate viewpoints too close to the robot. |
 | `min_robot_frontier_dist` | `0.6` | Ignore frontiers too close to the robot. |
 | `robot_clear_radius` | `0.3` | Clearance radius around occupied voxels. |
-| `unknown_clear_radius` | `0.3` | Reject viewpoints too close to unknown space. |
-| `sensor_height` | `0.5` | Height offset used when sampling viewpoints. |
-| `frontier_slope_deg` | `5.0` | FAEL-like slope filter for frontier detection. |
+| `unknown_clear_radius` | `0.0` | Reject viewpoints too close to unknown space. |
+| `viewpoint_free_z_min` | `0.0` | Lower vertical offset checked when deciding whether a sampled viewpoint is in free space. |
+| `viewpoint_free_z_max` | `0.8` | Upper vertical offset checked when deciding whether a sampled viewpoint is in free space. |
+| `viewpoint_free_z_step` | `0.1` | Vertical step for viewpoint free-space checks. |
+| `sensor_height` | `0.45` | Height offset used when sampling viewpoints, matching FAEL `UFOMap.sensor_height`. |
+| `frontier_slope_deg` | `89.0` | Slope filter for frontier detection; permissive for ROS2 ground simulation. |
 | `viewpoint_slope_deg` | `15.0` | FAEL-like slope filter for frontier visibility. |
 
 ## Notes

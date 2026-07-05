@@ -397,9 +397,17 @@ nav2_util::CallbackReturn PlannerCostmapServer::on_shutdown(
  * @param goal Goal message containing target pose and planner selection
  * @return ACCEPT_AND_EXECUTE to process goal
  */
-  rclcpp_action::GoalResponse PlannerCostmapServer::handleGoalGetPath(
+rclcpp_action::GoalResponse PlannerCostmapServer::handleGoalGetPath(
     [[maybe_unused]] const rclcpp_action::GoalUUID& uuid,
-    [[maybe_unused]] ActionToPose::Goal::ConstSharedPtr goal) {
+    ActionToPose::Goal::ConstSharedPtr goal) {
+  const auto now = this->now();
+  RCLCPP_INFO(
+      get_logger(),
+      "[PlannerServer] handle_goal enter t=%ld.%09ld planner_id=%s use_start=%s",
+      static_cast<long>(now.seconds()),
+      static_cast<long>(now.nanoseconds() % 1000000000),
+      goal ? goal->planner_id.c_str() : "<null>",
+      goal && goal->use_start ? "true" : "false");
   return rclcpp_action::GoalResponse::ACCEPT_AND_EXECUTE;  // accept all goal
 }
 
@@ -444,6 +452,14 @@ nav2_util::CallbackReturn PlannerCostmapServer::on_shutdown(
    * - Empty planner_id selection follows planner_plugins configuration order
  */
 void PlannerCostmapServer::callActionGetPath(ServerGoalHandleGetPathPtr goal_handle) {
+  const auto execute_enter_time = this->now();
+  const auto execute_enter_steady = std::chrono::steady_clock::now();
+  RCLCPP_INFO(
+      get_logger(),
+      "[PlannerServer] execute_callback enter t=%ld.%09ld",
+      static_cast<long>(execute_enter_time.seconds()),
+      static_cast<long>(execute_enter_time.nanoseconds() % 1000000000));
+
   const ActionToPose::Goal& goal = *goal_handle->get_goal();
   ActionToPose::Result::SharedPtr result =
       std::make_shared<ActionToPose::Result>();
@@ -509,7 +525,25 @@ void PlannerCostmapServer::callActionGetPath(ServerGoalHandleGetPathPtr goal_han
       newPlannerExecution(selected_planner_id, planner_ptr);
 
   // start another planning action
+  const auto start_before_steady = std::chrono::steady_clock::now();
+  RCLCPP_INFO(
+      get_logger(),
+      "[PlannerServer] PlannerAction::start begin id=%s elapsed_since_execute_ms=%.3f",
+      selected_planner_id.c_str(),
+      std::chrono::duration<double, std::milli>(
+          start_before_steady - execute_enter_steady).count());
+
   planner_action_->start(goal_handle, planner_execution);
+
+  const auto start_after_steady = std::chrono::steady_clock::now();
+  RCLCPP_INFO(
+      get_logger(),
+      "[PlannerServer] PlannerAction::start returned id=%s start_call_ms=%.3f total_execute_cb_ms=%.3f",
+      selected_planner_id.c_str(),
+      std::chrono::duration<double, std::milli>(
+          start_after_steady - start_before_steady).count(),
+      std::chrono::duration<double, std::milli>(
+          start_after_steady - execute_enter_steady).count());
 }
 
 rclcpp_action::CancelResponse PlannerCostmapServer::cancelActionGetPath(

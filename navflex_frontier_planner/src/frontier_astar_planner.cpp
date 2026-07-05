@@ -1,5 +1,7 @@
 #include "navflex_frontier_planner/frontier_astar_planner.hpp"
 
+#include <algorithm>
+#include <cmath>
 #include <sstream>
 
 #include "nav2_msgs/action/compute_path_to_pose.hpp"
@@ -60,28 +62,54 @@ uint32_t FrontierAStarPlanner::makePlan(
     return Result::INVALID_GOAL;
   }
 
-  auto candidates = core_.selectCandidates(start, goal);
+  auto candidates = core_.selectCandidates(start, goal, true);
   if (candidates.empty()) {
     message =
       "No frontier candidate found. Check point cloud input, TF availability, and whether enough "
       "free/unknown boundary voxels have been observed.";
     return Result::NO_PATH_FOUND;
   }
-  const auto & candidate = candidates.front();
+  std::size_t selected_index = candidates.size();
+  for (std::size_t i = 0; i < candidates.size(); ++i) {
+    plan = core_.makeAStarPath(start, candidates[i]);
+    if (!plan.poses.empty()) {
+      selected_index = i;
+      break;
+    }
+    RCLCPP_WARN(
+      rclcpp::get_logger("FrontierAStarPlanner"),
+      "Skipping frontier candidate %zu/%zu at (%.2f, %.2f, %.2f): not connected to topology "
+      "road graph",
+      i + 1, candidates.size(), candidates[i].point.x, candidates[i].point.y,
+      candidates[i].point.z);
+  }
 
-  plan = core_.makeAStarPath(start, candidate, candidates);
   if (plan.poses.empty()) {
+    const auto & candidate = candidates.front();
+    const double start_x = start.pose.position.x;
+    const double start_y = start.pose.position.y;
     std::ostringstream oss;
-    oss << "Topology graph planning failed to find a connected road-graph path to selected "
-        << "frontier candidate at ("
+    oss << "Topology graph planning failed to find a connected road-graph path to any frontier "
+        << "candidate. Best candidate was at ("
         << candidate.point.x << ", " << candidate.point.y << ", " << candidate.point.z
-        << "). Check /frontier_exploration/topology_map, road_graph_dist, local_range, and "
+        << "). Candidate XY distances from start:";
+    const std::size_t report_count = std::min<std::size_t>(candidates.size(), 10);
+    for (std::size_t i = 0; i < report_count; ++i) {
+      oss << " #" << (i + 1) << "="
+          << std::hypot(candidates[i].point.x - start_x, candidates[i].point.y - start_y)
+          << "m";
+    }
+    oss << ". Check /frontier_exploration/topology_map, road_graph_dist, local_range, and "
         << "whether start/goal can connect to nearby topology nodes.";
     message = oss.str();
     return Result::NO_PATH_FOUND;
   }
 
-  message = "Selected frontier candidate and planned topology graph path";
+  std::ostringstream oss;
+  oss << "Selected reachable frontier candidate " << (selected_index + 1) << "/"
+      << candidates.size() << " and planned topology graph path";
+  message = oss.str();
+  core_.publishSelection(start, candidates, candidates[selected_index]);
   return Result::SUCCESS;
 }
 

@@ -4,6 +4,7 @@
 #include <memory>
 #include <mutex>
 #include <optional>
+#include <cstdint>
 #include <map>
 #include <string>
 #include <unordered_map>
@@ -66,7 +67,8 @@ public:
 
   std::vector<Candidate> selectCandidates(
     const geometry_msgs::msg::PoseStamped & start,
-    const geometry_msgs::msg::PoseStamped & requested_goal);
+    const geometry_msgs::msg::PoseStamped & requested_goal,
+    bool force_refresh = false);
 
   nav_msgs::msg::Path makeCandidatePath(
     const geometry_msgs::msg::PoseStamped & start,
@@ -80,10 +82,10 @@ public:
     const geometry_msgs::msg::PoseStamped & start,
     const Candidate & candidate) const;
 
-  nav_msgs::msg::Path makeAStarPath(
+  void publishSelection(
     const geometry_msgs::msg::PoseStamped & start,
-    const Candidate & candidate,
-    const std::vector<Candidate> & topology) const;
+    const std::vector<Candidate> & candidates,
+    const Candidate & selected) const;
 
   std::string frameId() const {return frame_id_;}
 
@@ -102,6 +104,11 @@ public:
     std::vector<Candidate> candidates;
     rclcpp::Time candidates_stamp;
     std::string candidates_owner;
+    std::uint64_t map_revision{0};
+    std::uint64_t candidates_map_revision{0};
+    Point3 candidates_origin;
+    bool has_cached_candidates{false};
+    std::unordered_map<ufo::map::Code, Point3, ufo::map::Code::Hash> frontiers_viewpoints;
     RoadGraph road_graph;
     std::vector<Point3> visited_positions;
     rclcpp::Subscription<sensor_msgs::msg::PointCloud2>::SharedPtr cloud_sub;
@@ -121,15 +128,19 @@ private:
   Point3 codeToPoint(const ufo::map::Code & code) const;
   bool isNearOccupied(const Point3 & point, double radius) const;
   bool isNearUnknown(const Point3 & point, double radius) const;
+  bool hasFreeVoxelNearHeight(const Point3 & point) const;
   bool isFrontier(const ufo::map::Code & code) const;
-  bool isCollisionFree(const Point3 & from, const Point3 & to) const;
-  bool isSuitableViewpoint(const Point3 & point, const Point3 & current) const;
+  bool isCollisionFree2D(const Point3 & from, const Point3 & to) const;
+  bool isViewpointConnectionFree(const Point3 & from, const Point3 & to) const;
   double unknownGainBeyondFrontier(const Point3 & viewpoint, const Point3 & frontier) const;
 
   void frontierSearch(const Point3 & current);
   void findLocalFrontiers(const Point3 & current);
   void updateGlobalFrontiers(const Point3 & current);
   std::vector<Point3> getGlobalFrontiers() const;
+  std::vector<Point3> compactFrontiersForAttachment(
+    const std::vector<Point3> & frontiers,
+    const Point3 & current) const;
   std::vector<Point3> sampleViewpoints(const Point3 & current) const;
   RoadGraph buildRoadGraph(const Point3 & current, const std::vector<Candidate> & candidates) const;
   std::vector<Candidate> attachFrontiers(
@@ -137,7 +148,6 @@ private:
     const std::vector<Point3> & frontiers,
     const Point3 & current) const;
 
-  std::vector<Point3> shortestPath2D(const Point3 & start, const Point3 & goal) const;
   std::vector<Point3> shortestPathRoadGraph(
     const Point3 & start,
     const Candidate & goal,
@@ -163,40 +173,48 @@ private:
   std::string visualization_topic_prefix_{"frontier_exploration"};
   bool shared_map_{true};
   std::string shared_map_key_{"default"};
-  double resolution_{0.2};
+  double resolution_{0.4};
   int depth_levels_{16};
   int insert_depth_{0};
-  bool insert_discrete_{false};
+  bool insert_discrete_{true};
   bool simple_ray_casting_{false};
   int early_stopping_{0};
   bool publish_map_clouds_{true};
   double map_publish_period_{1.0};
-  double max_range_{30.0};
+  double max_range_{12.0};
   double sample_dist_{1.0};
-  double local_range_{30.0};
-  double frontier_dist_{2.0};
+  double local_range_{12.0};
+  double candidate_visibility_range_{11.5};
+  bool reuse_cached_candidates_{true};
+  double cache_robot_move_threshold_{1.0};
+  double candidate_recompute_period_{1.0};
+  double frontier_attach_grid_size_{0.4};
+  int global_frontier_revalidate_max_cells_{5000};
   double road_graph_dist_{3.0};
-  int road_graph_connectable_num_{8};
+  int road_graph_connectable_num_{3};
   double viewpoint_gain_threshold_{2.0};
   double min_frontier_area_{0.05};
   double candidate_separation_{1.0};
-  double frontier_distance_weight_{0.1};
+  double frontier_distance_weight_{0.0};
   int min_candidate_count_{8};
   int max_candidate_count_{10};
-  double frontier_gain_{1.0};
+  double frontier_gain_{100.0};
   double unknown_gain_range_{1.5};
   double unknown_gain_step_{0.2};
-  double min_unknown_gain_{1.0};
-  double distance_weight_{1.0};
+  double min_unknown_gain_{0.0};
+  double distance_weight_{0.1};
   double visited_radius_{1.5};
   double visited_penalty_{1000.0};
-  double known_gain_penalty_{0.25};
+  double known_gain_penalty_{0.02};
   double min_candidate_dist_{0.5};
   double min_robot_frontier_dist_{0.6};
   double robot_clear_radius_{0.3};
-  double unknown_clear_radius_{0.3};
-  double sensor_height_{0.5};
-  double frontier_slope_deg_{5.0};
+  double unknown_clear_radius_{0.0};
+  double viewpoint_free_z_min_{0.0};
+  double viewpoint_free_z_max_{0.8};
+  double viewpoint_free_z_step_{0.1};
+  double sensor_height_{0.45};
+  double frontier_slope_deg_{89.0};
   double viewpoint_slope_deg_{15.0};
   rclcpp::Time last_map_publish_time_;
 
@@ -204,7 +222,8 @@ private:
   void publishTopology(
     const std::vector<Candidate> & candidates,
     const Point3 & current,
-    const Candidate * selected) const;
+    const Candidate * selected,
+    bool publish_best_path = false) const;
 
   struct ViewpointDebug
   {

@@ -140,8 +140,14 @@ bool ControllerExecution::start() {
 }
 
 void ControllerExecution::setState(ControllerState state) {
-  std::lock_guard<std::mutex> guard(state_mtx_);
-  state_ = state;
+  {
+    std::lock_guard<std::mutex> guard(state_mtx_);
+    if (state_ == state) {
+      return;
+    }
+    state_ = state;
+  }
+  condition_.notify_all();
 }
 
 ControllerExecution::ControllerState ControllerExecution::getState() const {
@@ -229,9 +235,10 @@ bool ControllerExecution::isPatienceExceeded() const {
 
 bool ControllerExecution::cancel() {
   cancel_ = true;
-  if (waitForStateUpdate(std::chrono::milliseconds(500)) ==
+  condition_.notify_all();
+  if (waitForStateUpdate(std::chrono::milliseconds(50)) ==
       std::cv_status::timeout) {
-    RCLCPP_WARN(node_handle_->get_logger(),
+    RCLCPP_DEBUG(node_handle_->get_logger(),
                 "Timeout waiting for controller cancel to take effect.");
   }
   return true;

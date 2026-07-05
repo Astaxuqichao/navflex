@@ -295,6 +295,8 @@ void ControllerCostmapServer::callActionFollowPath(
   std::string controller_id;
   if (!findControllerId(goal->controller_id, controller_id)) {
     auto result = std::make_shared<ActionFollowPath::Result>();
+    result->outcome = ActionFollowPath::Result::INVALID_PLUGIN;
+    result->message = "Requested controller plugin was not found";
     RCLCPP_ERROR(get_logger(), "Requested controller '%s' not found.",
                  goal->controller_id.c_str());
     goal_handle->abort(result);
@@ -304,6 +306,8 @@ void ControllerCostmapServer::callActionFollowPath(
   // Validate plan
   if (normalized_path.poses.empty()) {
     auto result = std::make_shared<ActionFollowPath::Result>();
+    result->outcome = ActionFollowPath::Result::INVALID_PATH;
+    result->message = "Received an empty path, cannot follow";
     RCLCPP_ERROR(get_logger(), "Received an empty path, cannot follow.");
     goal_handle->abort(result);
     return;
@@ -311,6 +315,8 @@ void ControllerCostmapServer::callActionFollowPath(
 
   if (normalized_path.header.frame_id.empty()) {
     auto result = std::make_shared<ActionFollowPath::Result>();
+    result->outcome = ActionFollowPath::Result::INVALID_PATH;
+    result->message = "Received path with empty header.frame_id, cannot follow";
     RCLCPP_ERROR(get_logger(), "Received path with empty header.frame_id, cannot follow.");
     goal_handle->abort(result);
     return;

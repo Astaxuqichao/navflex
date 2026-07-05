@@ -277,8 +277,7 @@ void ControllerAction::runImpl(const GoalHandlePtr& goal_handle,
     // Check for cancel
     if (current_handle->is_canceling()) {
       RCLCPP_WARN(rclcpp::get_logger(name_), "[ControllerAction] runImpl() detected cancel for goal_handle %p", current_handle.get());
-      execution.stop();
-      execution.join();
+      execution.cancel();
       auto result = build_result(ActionFollowPath::Result::CANCELED,
                                  "FollowPath goal canceled");
       result->outcome = ActionFollowPath::Result::CANCELED;
@@ -293,8 +292,7 @@ void ControllerAction::runImpl(const GoalHandlePtr& goal_handle,
         RCLCPP_ERROR(rclcpp::get_logger(name_),
                      "[ControllerAction] %s goal_handle=%p",
                      stuck_message.c_str(), current_handle.get());
-        execution.stop();
-        execution.join();
+        execution.cancel();
         auto result = build_result(ActionFollowPath::Result::ROBOT_STUCK,
                                    stuck_message);
         result->outcome = ActionFollowPath::Result::ROBOT_STUCK;
@@ -438,7 +436,7 @@ void ControllerAction::runImpl(const GoalHandlePtr& goal_handle,
 
     if (controller_active) {
       RCLCPP_DEBUG(rclcpp::get_logger(name_), "[ControllerAction] Waiting for state update for goal_handle %p", current_handle.get());
-      execution.waitForStateUpdate(std::chrono::milliseconds(500));
+      execution.waitForStateUpdate(std::chrono::milliseconds(50));
     } else {
       RCLCPP_DEBUG(rclcpp::get_logger(name_), "[ControllerAction] Controller loop ended for goal_handle %p", current_handle.get());
     }
@@ -452,6 +450,18 @@ void ControllerAction::runImpl(const GoalHandlePtr& goal_handle,
     if (pending_preempted_goal_handle_ == current_handle) {
       pending_preempted_goal_handle_.reset();
     }
+  }
+
+  if (current_handle && current_handle->is_canceling()) {
+    auto result = build_result(ActionFollowPath::Result::CANCELED,
+                               "FollowPath goal canceled while controller loop exited");
+    result->outcome = ActionFollowPath::Result::CANCELED;
+    current_handle->canceled(result);
+  } else if (current_handle && current_handle->is_active()) {
+    auto result = build_result(ActionFollowPath::Result::INTERNAL_ERROR,
+                               "FollowPath controller loop exited without terminal state");
+    result->outcome = ActionFollowPath::Result::INTERNAL_ERROR;
+    current_handle->abort(result);
   }
 }
 
