@@ -24,12 +24,15 @@ def launch_setup(context, *args, **kwargs):
     bt_xml = LaunchConfiguration('default_nav_to_pose_bt_xml')
     use_respawn = LaunchConfiguration('use_respawn')
     use_composition = LaunchConfiguration('use_composition')
+    use_intra_process_comms = LaunchConfiguration('use_intra_process_comms')
+    use_bt_navigator = LaunchConfiguration('use_bt_navigator')
     container_name = LaunchConfiguration('container_name')
     log_level = LaunchConfiguration('log_level')
     graph_filepath = LaunchConfiguration('graph_filepath')
     use_route_server = LaunchConfiguration('use_route_server')
 
     with_route = use_route_server.perform(context).lower() in ('true', '1', 'yes')
+    with_bt_navigator = use_bt_navigator.perform(context).lower() in ('true', '1', 'yes')
     selected_chassis = chassis_model.perform(context).lower()
     params_file = params_file_arg.perform(context)
 
@@ -47,7 +50,8 @@ def launch_setup(context, *args, **kwargs):
     if with_route:
         lifecycle_nodes.append('route_server')
     lifecycle_nodes.append('velocity_smoother')
-    lifecycle_nodes.append('bt_navigator')
+    if with_bt_navigator:
+        lifecycle_nodes.append('bt_navigator')
 
     remappings = [('/tf', 'tf'), ('/tf_static', 'tf_static')]
 
@@ -61,6 +65,57 @@ def launch_setup(context, *args, **kwargs):
             },
             convert_types=True),
         allow_substs=True)
+
+    composable_nodes = [
+        ComposableNode(
+            package='navflex_costmap_nav',
+            plugin='navflex_costmap_nav::CostmapNavNode',
+            name='navflex_costmap_nav',
+            parameters=[
+                {'use_sim_time': use_sim_time},
+                configured_params,
+            ],
+            extra_arguments=[
+                {'use_intra_process_comms': use_intra_process_comms},
+            ],
+            remappings=remappings),
+        ComposableNode(
+            package='nav2_velocity_smoother',
+            plugin='nav2_velocity_smoother::VelocitySmoother',
+            name='velocity_smoother',
+            parameters=[configured_params],
+            extra_arguments=[
+                {'use_intra_process_comms': use_intra_process_comms},
+            ],
+            remappings=remappings + [('cmd_vel', 'cmd_vel_nav'), ('cmd_vel_smoothed', 'cmd_vel')]),
+    ]
+
+    if with_bt_navigator:
+        composable_nodes.append(ComposableNode(
+            package='nav2_bt_navigator',
+            plugin='nav2_bt_navigator::BtNavigator',
+            name='bt_navigator',
+            parameters=[
+                bt_params_file,
+                {
+                    'use_sim_time': use_sim_time,
+                    'default_nav_to_pose_bt_xml': bt_xml,
+                },
+            ],
+            remappings=remappings))
+
+    composable_nodes.append(ComposableNode(
+        package='nav2_lifecycle_manager',
+        plugin='nav2_lifecycle_manager::LifecycleManager',
+        name='lifecycle_manager_navflex',
+        parameters=[
+            {'use_sim_time': use_sim_time},
+            {'autostart': autostart},
+            {'node_names': lifecycle_nodes},
+            {'bond_timeout': 10.0},
+            {'bond_heartbeat_period': 0.1},
+            {'attempt_respawn_reconnection': True},
+        ]))
 
     nodes = [
         Node(
@@ -91,47 +146,7 @@ def launch_setup(context, *args, **kwargs):
         LoadComposableNodes(
             condition=IfCondition(use_composition),
             target_container=container_name,
-            composable_node_descriptions=[
-                ComposableNode(
-                    package='navflex_costmap_nav',
-                    plugin='navflex_costmap_nav::CostmapNavNode',
-                    name='navflex_costmap_nav',
-                    parameters=[
-                        {'use_sim_time': use_sim_time},
-                        configured_params,
-                    ],
-                    remappings=remappings),
-                ComposableNode(
-                    package='nav2_bt_navigator',
-                    plugin='nav2_bt_navigator::BtNavigator',
-                    name='bt_navigator',
-                    parameters=[
-                        bt_params_file,
-                        {
-                            'use_sim_time': use_sim_time,
-                            'default_nav_to_pose_bt_xml': bt_xml,
-                        },
-                    ],
-                    remappings=remappings),
-                ComposableNode(
-                    package='nav2_velocity_smoother',
-                    plugin='nav2_velocity_smoother::VelocitySmoother',
-                    name='velocity_smoother',
-                    parameters=[configured_params],
-                    remappings=remappings + [('cmd_vel', 'cmd_vel_nav'), ('cmd_vel_smoothed', 'cmd_vel')]),
-                ComposableNode(
-                    package='nav2_lifecycle_manager',
-                    plugin='nav2_lifecycle_manager::LifecycleManager',
-                    name='lifecycle_manager_navflex',
-                    parameters=[
-                        {'use_sim_time': use_sim_time},
-                        {'autostart': autostart},
-                        {'node_names': lifecycle_nodes},
-                        {'bond_timeout': 10.0},
-                        {'bond_heartbeat_period': 0.1},
-                        {'attempt_respawn_reconnection': True},
-                    ]),
-            ]),
+            composable_node_descriptions=composable_nodes),
     ]
 
     if with_route:
@@ -155,7 +170,7 @@ def launch_setup(context, *args, **kwargs):
 
     nodes.extend([
         Node(
-            condition=UnlessCondition(use_composition),
+            condition=UnlessCondition(use_composition) if with_bt_navigator else IfCondition('false'),
             package='nav2_bt_navigator',
             executable='bt_navigator',
             name='bt_navigator',
@@ -226,7 +241,11 @@ def generate_launch_description():
         DeclareLaunchArgument('use_respawn', default_value='False',
                               description='Respawn navflex_costmap_nav if it exits'),
         DeclareLaunchArgument('use_composition', default_value='true',
-                              description='Load navflex_costmap_nav, bt_navigator, and lifecycle_manager_navflex into a component container'),
+                              description='Load NavFlex lifecycle nodes into a component container'),
+        DeclareLaunchArgument('use_bt_navigator', default_value='true',
+                              description='Launch the standard Nav2 bt_navigator'),
+        DeclareLaunchArgument('use_intra_process_comms', default_value='true',
+                              description='Use intra-process communication for compatible composable data-path nodes'),
         DeclareLaunchArgument('container_name', default_value='navflex_container',
                               description='Component container name when use_composition is True'),
         DeclareLaunchArgument('log_level', default_value='info', description='Log level'),

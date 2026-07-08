@@ -10,6 +10,7 @@
 #include <unordered_map>
 #include <utility>
 
+#include "rclcpp/exceptions.hpp"
 #include "sensor_msgs/point_cloud2_iterator.hpp"
 #include "tf2/LinearMath/Matrix3x3.h"
 #include "tf2/LinearMath/Quaternion.h"
@@ -23,6 +24,30 @@ namespace navflex_frontier_planner
 namespace
 {
 double sqr(double value) {return value * value;}
+
+template<typename PublisherT, typename MessageT>
+bool safePublish(
+  const PublisherT & publisher,
+  const MessageT & message,
+  const rclcpp::Logger & logger,
+  const char * topic_label)
+{
+  try {
+    publisher->publish(message);
+    return true;
+  } catch (const rclcpp::exceptions::RCLError & ex) {
+    RCLCPP_WARN(
+      logger,
+      "Skipping frontier debug publish on %s after RCL publish failure: %s",
+      topic_label, ex.what());
+  } catch (const std::exception & ex) {
+    RCLCPP_WARN(
+      logger,
+      "Skipping frontier debug publish on %s after exception: %s",
+      topic_label, ex.what());
+  }
+  return false;
+}
 
 struct GridCell
 {
@@ -84,6 +109,40 @@ geometry_msgs::msg::PoseStamped makePose(
   pose.pose.position.z = point.z;
   pose.pose.orientation.w = 1.0;
   return pose;
+}
+
+void updatePathOrientations(nav_msgs::msg::Path & path)
+{
+  if (path.poses.size() < 2) {
+    return;
+  }
+
+  for (std::size_t i = 0; i < path.poses.size(); ++i) {
+    const auto & current = path.poses[i].pose.position;
+    geometry_msgs::msg::Point target;
+    if (i + 1 < path.poses.size()) {
+      target = path.poses[i + 1].pose.position;
+    } else {
+      target = path.poses[i - 1].pose.position;
+    }
+
+    double dx = target.x - current.x;
+    double dy = target.y - current.y;
+    if (i + 1 == path.poses.size()) {
+      dx = current.x - target.x;
+      dy = current.y - target.y;
+    }
+    if (std::hypot(dx, dy) < 1e-6) {
+      continue;
+    }
+
+    const double yaw = std::atan2(dy, dx);
+    auto & orientation = path.poses[i].pose.orientation;
+    orientation.x = 0.0;
+    orientation.y = 0.0;
+    orientation.z = std::sin(yaw * 0.5);
+    orientation.w = std::cos(yaw * 0.5);
+  }
 }
 
 std::mutex g_shared_maps_mutex;
@@ -974,6 +1033,9 @@ RoadGraph FaelFrontierCore::buildRoadGraph(
       if (dist > road_graph_dist_) {
         continue;
       }
+      if (!isViewpointConnectionFree(graph.nodes[i], graph.nodes[j])) {
+        continue;
+      }
       neighbors.emplace_back(dist, j);
     }
     std::sort(neighbors.begin(), neighbors.end());
@@ -1030,7 +1092,7 @@ std::vector<Candidate> FaelFrontierCore::selectCandidates(
       std_msgs::msg::Header header;
       header.stamp = clock_->now();
       header.frame_id = frame_id_;
-      selected_candidate_pub_->publish(makePose(selected->point, header));
+      safePublish(selected_candidate_pub_, makePose(selected->point, header), logger_, "selected_candidate");
     }
     RCLCPP_INFO(
       logger_,
@@ -1067,7 +1129,7 @@ std::vector<Candidate> FaelFrontierCore::selectCandidates(
     logger_,
     "[%s] candidate refresh timing ms: frontier=%.2f get_frontiers=%.2f compact=%.2f viewpoints=%.2f "
     "attach=%.2f road_graph=%.2f total=%.2f counts{frontiers=%zu viewpoints=%zu candidates=%zu "
-    "attach_frontiers=%zu road_nodes=%zu} road_graph_collision_check=false",
+    "attach_frontiers=%zu road_nodes=%zu} road_graph_collision_check=true",
     name_.c_str(),
     std::chrono::duration<double, std::milli>(frontier_done - frontier_start).count(),
     std::chrono::duration<double, std::milli>(get_frontiers_done - frontier_done).count(),
@@ -1104,7 +1166,7 @@ std::vector<Candidate> FaelFrontierCore::selectCandidates(
     std_msgs::msg::Header header;
     header.stamp = clock_->now();
     header.frame_id = frame_id_;
-    selected_candidate_pub_->publish(makePose(candidates.front().point, header));
+    safePublish(selected_candidate_pub_, makePose(candidates.front().point, header), logger_, "selected_candidate");
   }
   RCLCPP_INFO(
     logger_, "[%s] selected candidate x=%.2f y=%.2f z=%.2f score=%.2f attached_frontiers=%zu",
@@ -1159,10 +1221,31 @@ nav_msgs::msg::Path FaelFrontierCore::makeAStarPath(
   path.header = start.header;
   path.header.frame_id = frame_id_;
   const Point3 start_point{start.pose.position.x, start.pose.position.y, start.pose.position.z};
+  const double navigation_z = start.pose.position.z;
+  const double interpolation_step = std::max(resolution_, 0.2);
   auto points = shortestPathRoadGraph(start_point, candidate, map_state_->road_graph);
-  for (const auto & point : points) {
-    path.poses.push_back(makePose(point, path.header));
+  for (std::size_t i = 0; i < points.size(); ++i) {
+    Point3 point = points[i];
+    point.z = navigation_z;
+    if (i == 0 || path.poses.empty()) {
+      path.poses.push_back(makePose(point, path.header));
+      continue;
+    }
+
+    const auto & previous_pose = path.poses.back().pose.position;
+    const Point3 previous{previous_pose.x, previous_pose.y, navigation_z};
+    const double segment_length = previous.distanceXY(point);
+    const int steps = std::max(1, static_cast<int>(std::ceil(segment_length / interpolation_step)));
+    for (int step = 1; step <= steps; ++step) {
+      const double ratio = static_cast<double>(step) / static_cast<double>(steps);
+      Point3 interpolated{
+        previous.x + (point.x - previous.x) * ratio,
+        previous.y + (point.y - previous.y) * ratio,
+        navigation_z};
+      path.poses.push_back(makePose(interpolated, path.header));
+    }
   }
+  updatePathOrientations(path);
   return path;
 }
 
@@ -1179,7 +1262,7 @@ void FaelFrontierCore::publishSelection(
     std_msgs::msg::Header header;
     header.stamp = clock_->now();
     header.frame_id = frame_id_;
-    selected_candidate_pub_->publish(makePose(selected.point, header));
+    safePublish(selected_candidate_pub_, makePose(selected.point, header), logger_, "selected_candidate");
   }
 }
 
@@ -1338,7 +1421,7 @@ void FaelFrontierCore::publishCandidates(
     markers.markers.push_back(marker);
   }
 
-  candidate_pub_->publish(markers);
+  safePublish(candidate_pub_, markers, logger_, "candidates");
 }
 
 void FaelFrontierCore::publishTopology(
@@ -1504,7 +1587,7 @@ void FaelFrontierCore::publishTopology(
   markers.markers.push_back(selected_marker);
   markers.markers.push_back(best_path);
 
-  topology_pub_->publish(markers);
+  safePublish(topology_pub_, markers, logger_, "topology_map");
 }
 
 void FaelFrontierCore::publishMapClouds()
@@ -1556,8 +1639,8 @@ void FaelFrontierCore::publishMapClouds()
       return cloud;
     };
 
-  occupied_map_pub_->publish(build_cloud(true, false));
-  free_map_pub_->publish(build_cloud(false, true));
+  safePublish(occupied_map_pub_, build_cloud(true, false), logger_, "ufomap_occupied_cloud");
+  safePublish(free_map_pub_, build_cloud(false, true), logger_, "ufomap_free_cloud");
 }
 
 }  // namespace navflex_frontier_planner

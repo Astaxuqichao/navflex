@@ -1,0 +1,117 @@
+<?xml version="1.0"?>
+<root main_tree_to_execute="MainTree">
+  <BehaviorTree ID="MainTree">
+    <ForceSuccess>
+      <Repeat num_cycles="-1">
+        <Control ID="RecoveryNode" name="ExploreRecovery" number_of_retries="3">
+          <Control ID="PipelineSequence" name="ExploreOneFrontier">
+            <Decorator ID="RateController" hz="0.2">
+              <Control ID="RecoveryNode" name="ComputeFAELFrontierPath" number_of_retries="2">
+                <Action ID="NavflexGetPathAction"
+                        goal="{goal}"
+                        message="{planner_message}"
+                        outcome="{planner_outcome}"
+                        path="{frontier_path}"
+                        planner_id="FrontierAStar"
+                        server_name="compute_path_to_pose"
+                        server_timeout="5000"
+                        tolerance="0.5"
+                        use_start="false"/>
+                <Control ID="Sequence" name="RefreshFrontierObservations">
+                  <Action ID="ClearEntireCostmap"
+                          name="ClearGlobalCostmapAfterPlanningFailure"
+                          server_timeout="5000"
+                          service_name="global_costmap/clear_entirely_global_costmap"/>
+                  <Action ID="NavflexRecoveryAction"
+                          behavior="cmd_behavior"
+                          command="rotate 1.57"
+                          message="{planner_recovery_rotate_message}"
+                          outcome="{planner_recovery_rotate_outcome}"
+                          server_name="behavior_action"
+                          server_timeout="5000"
+                          used_plugin="{planner_recovery_rotate_plugin}"/>
+                  <Action ID="NavflexRecoveryAction"
+                          behavior="cmd_behavior"
+                          command="wait 1.0"
+                          message="{planner_recovery_wait_message}"
+                          outcome="{planner_recovery_wait_outcome}"
+                          server_name="behavior_action"
+                          server_timeout="5000"
+                          used_plugin="{planner_recovery_wait_plugin}"/>
+                </Control>
+              </Control>
+            </Decorator>
+
+            <Control ID="RecoveryNode" name="FollowFAELFrontierPath" number_of_retries="2">
+              <Action ID="NavflexExePathAction"
+                      angle_to_goal="{controller_angle_to_goal}"
+                      controller_id="FollowPath"
+                      dist_to_goal="{controller_dist_to_goal}"
+                      feedback_distance_to_goal="{controller_feedback_distance_to_goal}"
+                      feedback_message="{controller_feedback_message}"
+                      feedback_outcome="{controller_feedback_outcome}"
+                      feedback_speed="{controller_feedback_speed}"
+                      final_pose="{controller_final_pose}"
+                      message="{controller_message}"
+                      outcome="{controller_outcome}"
+                      path="{frontier_path}"
+                      server_name="follow_path"
+                      server_timeout="1000"
+                      xy_goal_tolerance="0.0"
+                      yaw_goal_tolerance="0.0"/>
+              <Control ID="Sequence" name="RecoverFollowPath">
+                <Action ID="ClearEntireCostmap"
+                        name="ClearLocalCostmapAfterFollowFailure"
+                        server_timeout="1000"
+                        service_name="local_costmap/clear_entirely_local_costmap"/>
+                <Action ID="NavflexRecoveryAction"
+                        behavior="cmd_behavior"
+                        command="linear -0.3"
+                        message="{controller_recovery_back_message}"
+                        outcome="{controller_recovery_back_outcome}"
+                        server_name="behavior_action"
+                        server_timeout="1000"
+                        used_plugin="{controller_recovery_back_plugin}"/>
+                <Action ID="NavflexRecoveryAction"
+                        behavior="cmd_behavior"
+                        command="rotate -1.57"
+                        message="{controller_recovery_rotate_message}"
+                        outcome="{controller_recovery_rotate_outcome}"
+                        server_name="behavior_action"
+                        server_timeout="1000"
+                        used_plugin="{controller_recovery_rotate_plugin}"/>
+              </Control>
+            </Control>
+          </Control>
+
+          <Control ID="RoundRobin" name="ExploreGlobalRecovery">
+            <Action ID="ClearEntireCostmap"
+                    name="ClearGlobalCostmap"
+                    server_timeout="1000"
+                    service_name="global_costmap/clear_entirely_global_costmap"/>
+            <Action ID="ClearEntireCostmap"
+                    name="ClearLocalCostmap"
+                    server_timeout="1000"
+                    service_name="local_costmap/clear_entirely_local_costmap"/>
+            <Action ID="NavflexRecoveryAction"
+                    behavior="cmd_behavior"
+                    command="rotate 3.14"
+                    message="{global_recovery_rotate_message}"
+                    outcome="{global_recovery_rotate_outcome}"
+                    server_name="behavior_action"
+                    server_timeout="1000"
+                    used_plugin="{global_recovery_rotate_plugin}"/>
+            <Action ID="NavflexRecoveryAction"
+                    behavior="cmd_behavior"
+                    command="wait 2.0"
+                    message="{global_recovery_wait_message}"
+                    outcome="{global_recovery_wait_outcome}"
+                    server_name="behavior_action"
+                    server_timeout="1000"
+                    used_plugin="{global_recovery_wait_plugin}"/>
+          </Control>
+        </Control>
+      </Repeat>
+    </ForceSuccess>
+  </BehaviorTree>
+</root>

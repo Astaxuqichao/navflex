@@ -1,0 +1,43 @@
+bt_navigator:
+  ros__parameters:
+    use_sim_time: true
+    global_frame: map
+    robot_base_frame: base_link
+    odom_topic: odom
+    bt_loop_duration: 10
+    default_server_timeout: 1000
+    wait_for_service_timeout: 1000
+    default_nav_to_pose_bt_xml: ''
+    default_nav_through_poses_bt_xml: ''
+    plugin_lib_names:
+      - nav2_clear_costmap_service_bt_node
+      - nav2_goal_updated_condition_bt_node
+      - nav2_rate_controller_bt_node
+      - nav2_recovery_node_bt_node
+      - nav2_round_robin_node_bt_node
+      - nav2_pipeline_sequence_bt_node
+      - navflex_get_path_action
+      - navflex_exe_path_action
+      - navflex_recovery_action
+
+exploration_bt_navigator:
+  ros__parameters:
+    use_sim_time: true
+    global_frame: map
+    robot_base_frame: base_link
+    odom_topic: odom
+    bt_loop_duration: 10
+    default_server_timeout: 1000
+    wait_for_service_timeout: 1000
+    default_nav_to_pose_bt_xml: ''
+    default_nav_through_poses_bt_xml: ''
+    plugin_lib_names:
+      - nav2_clear_costmap_service_bt_node
+      - nav2_goal_updated_condition_bt_node
+      - nav2_rate_controller_bt_node
+      - nav2_recovery_node_bt_node
+      - nav2_round_robin_node_bt_node
+      - nav2_pipeline_sequence_bt_node
+      - navflex_get_path_action
+      - navflex_exe_path_action
+      - navflex_recovery_action
