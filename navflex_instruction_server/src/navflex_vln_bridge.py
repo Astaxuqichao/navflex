@@ -98,6 +98,7 @@ class NavflexVlnBridge(Node):
             action = self._fallback_action(request.instruction, request.perception_json, request.semantic_context_json)
 
         action = self._normalize_action(action)
+        self._enrich_action_from_perception(action, request.perception_json, steps)
         self._validate_action(action)
         return action
 
@@ -121,12 +122,16 @@ class NavflexVlnBridge(Node):
         for target in visible_targets:
             name = self._normalize_text(target.get('name') or target.get('label') or '')
             if name and (name in text or text in name):
-                return {
+                action = {
                     'action': 'semantic_navigate',
                     'target': name,
                     'target_type': target.get('type') or target.get('label') or '',
                     'evidence': {'source': 'perception', 'target': target},
                 }
+                pose = self._pose_from_target(target)
+                if pose is not None:
+                    action['target_pose'] = pose
+                return action
 
         for landmark in semantic_context.get('landmarks', []):
             if isinstance(landmark, str):
@@ -166,12 +171,71 @@ class NavflexVlnBridge(Node):
         if name not in self.allowed_actions:
             raise VlnBridgeError(f"action '{name}' is not allowed")
         if name in ['semantic_navigate', 'navigate_to_object_or_region', 'navigate_to_landmark']:
-            if not str(action.get('target', '')).strip():
-                raise VlnBridgeError('semantic navigation action needs target')
+            if not str(action.get('target', '')).strip() and not self._action_has_pose(action):
+                raise VlnBridgeError('semantic navigation action needs target or target_pose')
         if name in ['navigate']:
-            pose = action.get('pose', {})
-            if action.get('x') is None and pose.get('x') is None:
+            if not self._action_has_pose(action):
                 raise VlnBridgeError('navigate action needs x/y or pose')
+
+    def _enrich_action_from_perception(self, action: Dict, perception_json: str, steps: List[str]) -> None:
+        if self._action_has_pose(action) or not perception_json.strip():
+            return
+        if action.get('action') not in ['semantic_navigate', 'navigate_to_object_or_region', 'navigate_to_landmark']:
+            return
+        perception = self._parse_json(perception_json, 'perception_json')
+        target_text = self._normalize_text(action.get('target', ''))
+        if not target_text:
+            return
+        for target in self._visible_targets(perception):
+            names = [
+                self._normalize_text(target.get('name', '')),
+                self._normalize_text(target.get('label', '')),
+                self._normalize_text(target.get('type', '')),
+            ]
+            aliases = target.get('aliases', [])
+            if isinstance(aliases, list):
+                names.extend(self._normalize_text(alias) for alias in aliases)
+            if not any(name and (name in target_text or target_text in name) for name in names):
+                continue
+            pose = self._pose_from_target(target)
+            if pose is None:
+                continue
+            action['target_pose'] = pose
+            action.setdefault('target_type', target.get('type') or target.get('label') or '')
+            action['evidence'] = {'source': 'perception', 'target': target}
+            steps.append(f"target pose attached from perception: {action.get('target', '')}")
+            return
+
+    def _action_has_pose(self, action: Dict) -> bool:
+        if self._pose_from_target(action) is not None:
+            return True
+        return any(isinstance(action.get(key), dict) and self._parse_pose(action[key]) is not None
+                   for key in ['target_pose', 'goal_pose', 'nav_goal', 'pose'])
+
+    def _pose_from_target(self, target: Dict):
+        for key in ['target_pose', 'goal_pose', 'nav_goal', 'pose', 'map_pose']:
+            pose = self._parse_pose(target.get(key))
+            if pose is not None:
+                return pose
+        return self._parse_pose(target)
+
+    def _parse_pose(self, value):
+        if not isinstance(value, dict):
+            return None
+        x = value.get('x')
+        y = value.get('y')
+        yaw = value.get('yaw', value.get('theta', 0.0))
+        if x is None or y is None:
+            position = value.get('position')
+            if isinstance(position, dict):
+                x = position.get('x')
+                y = position.get('y')
+            pose = value.get('pose')
+            if isinstance(pose, dict):
+                return self._parse_pose(pose)
+        if x is None or y is None:
+            return None
+        return {'x': float(x), 'y': float(y), 'yaw': float(yaw)}
 
     def _call_task(self, action: Dict, instruction: str, execute: bool, dry_run: bool):
         if not self.task_client.wait_for_service(timeout_sec=self.action_timeout):

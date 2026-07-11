@@ -1,5 +1,6 @@
 from launch import LaunchDescription
 from launch.actions import DeclareLaunchArgument, OpaqueFunction
+from launch.conditions import IfCondition
 from launch.substitutions import LaunchConfiguration
 from launch_ros.actions import Node
 from ament_index_python.packages import get_package_share_directory
@@ -37,6 +38,7 @@ def launch_setup(context, *args, **kwargs):
             name='navflex_semantic_map_server',
             output='screen',
             parameters=semantic_parameters,
+            condition=IfCondition(LaunchConfiguration('enable_semantic_map')),
         ),
         Node(
             package='navflex_instruction_server',
@@ -46,6 +48,7 @@ def launch_setup(context, *args, **kwargs):
             parameters=[{
                 'action_timeout': LaunchConfiguration('action_timeout'),
                 'default_execute': LaunchConfiguration('default_execute'),
+                'use_semantic_map': LaunchConfiguration('enable_semantic_map'),
             }],
         ),
         Node(
@@ -74,6 +77,7 @@ def generate_launch_description():
         DeclareLaunchArgument('behavior_id', default_value='cmd_behavior'),
         DeclareLaunchArgument('action_timeout', default_value='60.0'),
         DeclareLaunchArgument('default_execute', default_value='false'),
+        DeclareLaunchArgument('enable_semantic_map', default_value='false'),
         DeclareLaunchArgument(
             'semantic_params_file',
             default_value=default_semantic_params),

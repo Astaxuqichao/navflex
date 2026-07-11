@@ -315,6 +315,72 @@ navflex_planner_server:
     planner_patience: 10.0       # seconds per single makePlan() call; abort if exceeded
     planner_max_retries: 10      # retry up to 10 times on quick failures
     planner_plugins: ["GridBased", "Smac2D","FrontierCandidate", "FrontierAStar"]
+    frontier_shared_config:
+      frame_id: "map"
+      point_cloud_topic: "/scan_cloud"
+      visualization_topic_prefix: "frontier_exploration"
+      resolution: 0.2
+      depth_levels: 16
+      insert_depth: 0
+      insert_discrete: true
+      simple_ray_casting: false
+      early_stopping: 0
+      publish_map_clouds: true
+      map_publish_period: 1.0
+      max_range: 12.0
+      sample_dist: 1.0
+      local_range: 12.0
+      candidate_visibility_range: 11.5
+      reuse_cached_candidates: true
+      cache_robot_move_threshold: 1.0
+      candidate_recompute_period: 1.0
+      frontier_attach_grid_size: 0.4
+      global_frontier_revalidate_max_cells: 5000
+      frontier_visibility_max_viewpoints: 8
+      viewpoint_gain_threshold: 2.0
+      min_frontier_area: 0.05
+      candidate_separation: 1.0
+      frontier_distance_weight: 0.0
+      min_candidate_count: 8
+      max_candidate_count: 10
+      frontier_gain: 100.0
+      unknown_gain_range: 1.5
+      unknown_gain_step: 0.2
+      min_unknown_gain: 0.0
+      distance_weight: 0.1
+      visited_radius: 1.5
+      visited_penalty: 1000.0
+      known_gain_penalty: 0.02
+      min_candidate_dist: 0.5
+      min_robot_frontier_dist: 0.6
+      robot_clear_radius: 0.3
+      unknown_clear_radius: 0.0
+      viewpoint_free_z_min: 0.0
+      viewpoint_free_z_max: 0.8
+      viewpoint_free_z_step: 0.1
+      sensor_height: 0.45
+      frontier_slope_deg: 89.0
+      viewpoint_slope_deg: 15.0
+      topology_enabled: true
+      topology_initialization_period: 0.5
+      topology_update_distance: 1.0
+      topology_update_radius: 6.0
+      topology_node_spacing: 1.2
+      topology_local_node_spacing: 0.6
+      topology_min_clearance: 0.35
+      topology_local_min_clearance: 0.2
+      topology_max_clearance: 2.4
+      topology_connection_radius: 2.5
+      topology_attach_radius: 5.0
+      topology_z_tolerance: 0.6
+      topology_initial_min_nodes: 8
+      topology_max_samples: 6000
+      topology_max_nodes: 1200
+      topology_max_neighbors: 4
+    FrontierCandidate:
+      plugin: "navflex_frontier_planner/CandidateFrontierPlanner"
+    FrontierAStar:
+      plugin: "navflex_frontier_planner/FrontierAStarPlanner"
     GridBased:
       plugin: "nav2_navfn_planner/NavfnPlanner"
       tolerance: 0.5
@@ -338,106 +404,7 @@ navflex_planner_server:
         tolerance: 1.0e-10
         do_refinement: true
         refinement_num: 2
-    FrontierCandidate:
-      plugin: "navflex_frontier_planner/CandidateFrontierPlanner"
-      frame_id: "map"
-      point_cloud_topic: "/scan_cloud"
-      visualization_topic_prefix: "frontier_exploration"
-      shared_map: true
-      shared_map_key: "default"
-      resolution: 0.2
-      depth_levels: 16
-      insert_depth: 0
-      insert_discrete: true
-      simple_ray_casting: false
-      early_stopping: 0
-      publish_map_clouds: true
-      map_publish_period: 1.0
-      max_range: 12.0
-      sample_dist: 1.0
-      local_range: 12.0
-      candidate_visibility_range: 11.5
-      reuse_cached_candidates: true
-      cache_robot_move_threshold: 1.0
-      candidate_recompute_period: 1.0
-      frontier_attach_grid_size: 0.4
-      global_frontier_revalidate_max_cells: 5000
-      road_graph_dist: 3.0
-      road_graph_connectable_num: 3
-      viewpoint_gain_threshold: 2.0
-      min_frontier_area: 0.05
-      candidate_separation: 1.0
-      frontier_distance_weight: 0.0
-      min_candidate_count: 8
-      max_candidate_count: 10
-      frontier_gain: 100.0
-      unknown_gain_range: 1.5
-      unknown_gain_step: 0.2
-      min_unknown_gain: 0.0
-      distance_weight: 0.1
-      visited_radius: 1.5
-      visited_penalty: 1000.0
-      known_gain_penalty: 0.02
-      min_candidate_dist: 0.5
-      min_robot_frontier_dist: 0.6
-      robot_clear_radius: 0.3
-      unknown_clear_radius: 0.0
-      viewpoint_free_z_min: 0.0
-      viewpoint_free_z_max: 0.8
-      viewpoint_free_z_step: 0.1
-      sensor_height: 0.45
-      frontier_slope_deg: 89.0
-      viewpoint_slope_deg: 15.0
-    FrontierAStar:
-      plugin: "navflex_frontier_planner/FrontierAStarPlanner"
-      frame_id: "map"
-      point_cloud_topic: "/scan_cloud"
-      visualization_topic_prefix: "frontier_exploration"
-      shared_map: true
-      shared_map_key: "default"
-      resolution: 0.2
-      depth_levels: 16
-      insert_depth: 0
-      insert_discrete: true
-      simple_ray_casting: false
-      early_stopping: 0
-      publish_map_clouds: true
-      map_publish_period: 1.0
-      max_range: 12.0
-      sample_dist: 1.0
-      local_range: 12.0
-      candidate_visibility_range: 11.5
-      reuse_cached_candidates: true
-      cache_robot_move_threshold: 1.0
-      candidate_recompute_period: 1.0
-      frontier_attach_grid_size: 0.4
-      global_frontier_revalidate_max_cells: 5000
-      road_graph_dist: 3.0
-      road_graph_connectable_num: 3
-      viewpoint_gain_threshold: 2.0
-      min_frontier_area: 0.05
-      candidate_separation: 1.0
-      frontier_distance_weight: 0.0
-      min_candidate_count: 8
-      max_candidate_count: 10
-      frontier_gain: 100.0
-      unknown_gain_range: 1.5
-      unknown_gain_step: 0.2
-      min_unknown_gain: 0.0
-      distance_weight: 0.1
-      visited_radius: 1.5
-      visited_penalty: 1000.0
-      known_gain_penalty: 0.02
-      min_candidate_dist: 0.5
-      min_robot_frontier_dist: 0.6
-      robot_clear_radius: 0.3
-      unknown_clear_radius: 0.0
-      viewpoint_free_z_min: 0.0
-      viewpoint_free_z_max: 0.8
-      viewpoint_free_z_step: 0.1
-      sensor_height: 0.45
-      frontier_slope_deg: 89.0
-      viewpoint_slope_deg: 15.0
+
     SmacHybrid:
       plugin: "nav2_smac_planner/SmacPlannerHybrid"
       tolerance: 0.5

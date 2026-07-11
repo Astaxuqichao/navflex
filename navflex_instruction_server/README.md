@@ -317,12 +317,13 @@ colcon build --symlink-install --packages-select navflex_instruction_server
 ros2 launch navflex_instruction_server task_stack.launch.py
 ```
 
-默认会加载包内示例语义地图：
-`params/semantic_landmarks.yaml`，其中包含 `charging_station` / `充电桩`、
-`kitchen` / `厨房` 和 `corridor` / `走廊`。也可以替换成自己的语义地图：
+默认不启动静态语义地图。`semantic_navigate` 需要由 VLN/VLM 或感知节点提供
+`target_pose` / `pose` / `nav_goal` / `x,y,yaw`，任务层会直接 grounding 成
+`go to x y yaw`。如果需要恢复静态语义地图，可以显式打开：
 
 ```bash
 ros2 launch navflex_instruction_server task_stack.launch.py \
+  enable_semantic_map:=true \
   semantic_params_file:=/path/to/semantic_landmarks.yaml
 ```
 
@@ -336,29 +337,22 @@ source install/setup.bash
 ros2 launch navflex_instruction_server task_stack.launch.py
 ```
 
-另开一个终端，查询示例语义目标：
+另开一个终端，体验无语义地图的任务 grounding：
 
 ```bash
 source install/setup.bash
-ros2 service call /navflex_semantic_map/query_target \
-  navflex_instruction_server/srv/QuerySemanticTarget \
-  "{query: '充电桩'}"
-```
-
-体验自然语言任务 dry-run：
-
-```bash
 ros2 service call /navflex_task/execute \
   navflex_instruction_server/srv/ExecuteTask \
-  "{instruction: '去充电桩', execute: false, dry_run: true}"
+  "{task_json: '{\"action\":\"semantic_navigate\",\"target\":\"chair\",\"target_pose\":{\"x\":1.2,\"y\":0.8,\"yaw\":0.0}}', execute: false, dry_run: true}"
 ```
 
-体验 VLN/VLM 桥接 dry-run：
+体验 VLN/VLM 桥接 dry-run。这里 `model_output_json` 只给目标名，
+`perception_json` 提供目标在 map frame 下的导航位姿：
 
 ```bash
 ros2 service call /navflex_vln/interpret \
   navflex_instruction_server/srv/InterpretVln \
-  "{instruction: '带我去充电桩', model_output_json: '{\"action\":\"semantic_navigate\",\"target\":\"charging_station\"}', execute: false, dry_run: true}"
+  "{instruction: '带我去椅子旁边', perception_json: '{\"objects\":[{\"name\":\"chair\",\"type\":\"furniture\",\"nav_goal\":{\"x\":1.2,\"y\":0.8,\"yaw\":0.0}}]}', model_output_json: '{\"action\":\"semantic_navigate\",\"target\":\"chair\"}', execute: false, dry_run: true}"
 ```
 
 ### 结构化任务入口
@@ -368,7 +362,7 @@ ros2 service call /navflex_vln/interpret \
 ```bash
 ros2 service call /navflex_task/execute \
   navflex_instruction_server/srv/ExecuteTask \
-  "{instruction: '去充电桩', execute: false, dry_run: true}"
+  "{task_json: '{\"action\":\"semantic_navigate\",\"target\":\"chair\",\"target_pose\":{\"x\":1.2,\"y\":0.8,\"yaw\":0.0}}', execute: false, dry_run: true}"
 ```
 
 执行结构化任务：
@@ -376,7 +370,7 @@ ros2 service call /navflex_task/execute \
 ```bash
 ros2 service call /navflex_task/execute \
   navflex_instruction_server/srv/ExecuteTask \
-  "{task_json: '{\"action\":\"semantic_navigate\",\"target\":\"charging_station\"}', execute: true}"
+  "{task_json: '{\"action\":\"semantic_navigate\",\"target\":\"chair\",\"target_pose\":{\"x\":1.2,\"y\":0.8,\"yaw\":0.0}}', execute: true}"
 ```
 
 支持的第一版 task schema：
@@ -384,8 +378,9 @@ ros2 service call /navflex_task/execute \
 ```json
 {
   "action": "semantic_navigate",
-  "target": "charging_station",
-  "target_type": "charger",
+  "target": "chair",
+  "target_type": "furniture",
+  "target_pose": {"x": 1.2, "y": 0.8, "yaw": 0.0},
   "constraints": ["avoid_crowd"],
   "confirmation_required": false
 }
@@ -401,6 +396,9 @@ ros2 service call /navflex_task/execute \
 ```
 
 ### 语义地图
+
+语义地图是可选模式。默认 launch 不启动该服务；需要先用
+`enable_semantic_map:=true` 启动。
 
 查询地标：
 
@@ -425,8 +423,18 @@ ros2 service call /navflex_semantic_map/update_landmark \
 ```json
 {
   "action": "semantic_navigate",
-  "target": "charging_station",
+  "target": "chair",
   "constraints": ["avoid_crowd"]
+}
+```
+
+如果模型已经输出 map frame 下的导航位姿，也可以直接给：
+
+```json
+{
+  "action": "semantic_navigate",
+  "target": "chair",
+  "target_pose": {"x": 1.2, "y": 0.8, "yaw": 0.0}
 }
 ```
 
@@ -435,7 +443,7 @@ ros2 service call /navflex_semantic_map/update_landmark \
 ```bash
 ros2 service call /navflex_vln/interpret \
   navflex_instruction_server/srv/InterpretVln \
-  "{instruction: '带我去充电桩', model_output_json: '{\"action\":\"semantic_navigate\",\"target\":\"charging_station\"}', execute: false, dry_run: true}"
+  "{instruction: '带我去椅子旁边', perception_json: '{\"objects\":[{\"name\":\"chair\",\"nav_goal\":{\"x\":1.2,\"y\":0.8,\"yaw\":0.0}}]}', model_output_json: '{\"action\":\"semantic_navigate\",\"target\":\"chair\"}', execute: false, dry_run: true}"
 ```
 
 `execute=false` 或 `dry_run=true` 时只完成解释、grounding 和安全检查，不真正调用导航执行。

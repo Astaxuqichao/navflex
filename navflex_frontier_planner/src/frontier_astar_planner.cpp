@@ -1,7 +1,6 @@
 #include "navflex_frontier_planner/frontier_astar_planner.hpp"
 
-#include <algorithm>
-#include <cmath>
+#include <chrono>
 #include <sstream>
 
 #include "nav2_msgs/action/compute_path_to_pose.hpp"
@@ -51,6 +50,7 @@ uint32_t FrontierAStarPlanner::makePlan(
   std::string & message)
 {
   using Result = nav2_msgs::action::ComputePathToPose::Result;
+  const auto started = std::chrono::steady_clock::now();
   plan = nav_msgs::msg::Path();
 
   if (start.header.frame_id.empty()) {
@@ -63,53 +63,48 @@ uint32_t FrontierAStarPlanner::makePlan(
   }
 
   auto candidates = core_.selectCandidates(start, goal, true);
+  const auto candidates_done = std::chrono::steady_clock::now();
   if (candidates.empty()) {
+    RCLCPP_WARN(
+      rclcpp::get_logger("FrontierAStarPlanner"),
+      "FrontierAStar planning failed during candidate selection after %.2fms",
+      std::chrono::duration<double, std::milli>(candidates_done - started).count());
     message =
       "No frontier candidate found. Check point cloud input, TF availability, and whether enough "
       "free/unknown boundary voxels have been observed.";
     return Result::NO_PATH_FOUND;
   }
-  std::size_t selected_index = candidates.size();
-  for (std::size_t i = 0; i < candidates.size(); ++i) {
-    plan = core_.makeAStarPath(start, candidates[i]);
-    if (!plan.poses.empty()) {
-      selected_index = i;
-      break;
-    }
+  const std::size_t selected_index = 0;
+  plan = core_.makeAStarPath(start, candidates[selected_index]);
+  const auto path_done = std::chrono::steady_clock::now();
+  if (plan.poses.empty()) {
     RCLCPP_WARN(
       rclcpp::get_logger("FrontierAStarPlanner"),
-      "Skipping frontier candidate %zu/%zu at (%.2f, %.2f, %.2f): not connected to topology "
-      "road graph",
-      i + 1, candidates.size(), candidates[i].point.x, candidates[i].point.y,
-      candidates[i].point.z);
-  }
-
-  if (plan.poses.empty()) {
-    const auto & candidate = candidates.front();
-    const double start_x = start.pose.position.x;
-    const double start_y = start.pose.position.y;
-    std::ostringstream oss;
-    oss << "Topology graph planning failed to find a connected road-graph path to any frontier "
-        << "candidate. Best candidate was at ("
-        << candidate.point.x << ", " << candidate.point.y << ", " << candidate.point.z
-        << "). Candidate XY distances from start:";
-    const std::size_t report_count = std::min<std::size_t>(candidates.size(), 10);
-    for (std::size_t i = 0; i < report_count; ++i) {
-      oss << " #" << (i + 1) << "="
-          << std::hypot(candidates[i].point.x - start_x, candidates[i].point.y - start_y)
-          << "m";
-    }
-    oss << ". Check /frontier_exploration/topology_map, road_graph_dist, local_range, and "
-        << "whether start/goal can connect to nearby topology nodes.";
-    message = oss.str();
+      "FrontierAStar planning failed after %.2fms: phases_ms{candidates=%.2f path=%.2f}",
+      std::chrono::duration<double, std::milli>(path_done - started).count(),
+      std::chrono::duration<double, std::milli>(candidates_done - started).count(),
+      std::chrono::duration<double, std::milli>(path_done - candidates_done).count());
+    message =
+      "The best frontier candidate cannot be connected through the accumulated point-cloud "
+      "topology map. Check start_edges and goal_edges in the topology A* logs.";
     return Result::NO_PATH_FOUND;
   }
 
   std::ostringstream oss;
-  oss << "Selected reachable frontier candidate " << (selected_index + 1) << "/"
-      << candidates.size() << " and planned topology graph path";
+  oss << "Selected best frontier candidate 1/" << candidates.size()
+      << " and generated an A* path on the accumulated point-cloud topology map";
   message = oss.str();
   core_.publishSelection(start, candidates, candidates[selected_index]);
+  const auto finished = std::chrono::steady_clock::now();
+  RCLCPP_INFO(
+    rclcpp::get_logger("FrontierAStarPlanner"),
+    "FrontierAStar planning success: candidates=%zu path_poses=%zu total=%.2fms "
+    "phases_ms{candidates=%.2f path=%.2f publish=%.2f}",
+    candidates.size(), plan.poses.size(),
+    std::chrono::duration<double, std::milli>(finished - started).count(),
+    std::chrono::duration<double, std::milli>(candidates_done - started).count(),
+    std::chrono::duration<double, std::milli>(path_done - candidates_done).count(),
+    std::chrono::duration<double, std::milli>(finished - path_done).count());
   return Result::SUCCESS;
 }
 

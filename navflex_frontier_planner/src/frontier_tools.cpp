@@ -98,6 +98,43 @@ std::vector<std::size_t> radiusCandidates(
   return candidates;
 }
 
+double cross2D(const Point3 & a, const Point3 & b, const Point3 & c)
+{
+  return (b.x - a.x) * (c.y - a.y) - (b.y - a.y) * (c.x - a.x);
+}
+
+bool pointOnSegment2D(const Point3 & a, const Point3 & b, const Point3 & point)
+{
+  constexpr double epsilon = 1e-6;
+  return std::abs(cross2D(a, b, point)) <= epsilon &&
+         point.x >= std::min(a.x, b.x) - epsilon &&
+         point.x <= std::max(a.x, b.x) + epsilon &&
+         point.y >= std::min(a.y, b.y) - epsilon &&
+         point.y <= std::max(a.y, b.y) + epsilon;
+}
+
+bool segmentsIntersect2D(
+  const Point3 & a,
+  const Point3 & b,
+  const Point3 & c,
+  const Point3 & d)
+{
+  constexpr double epsilon = 1e-6;
+  const double ab_c = cross2D(a, b, c);
+  const double ab_d = cross2D(a, b, d);
+  const double cd_a = cross2D(c, d, a);
+  const double cd_b = cross2D(c, d, b);
+  if (((ab_c > epsilon && ab_d < -epsilon) || (ab_c < -epsilon && ab_d > epsilon)) &&
+    ((cd_a > epsilon && cd_b < -epsilon) || (cd_a < -epsilon && cd_b > epsilon)))
+  {
+    return true;
+  }
+  return (std::abs(ab_c) <= epsilon && pointOnSegment2D(a, b, c)) ||
+         (std::abs(ab_d) <= epsilon && pointOnSegment2D(a, b, d)) ||
+         (std::abs(cd_a) <= epsilon && pointOnSegment2D(c, d, a)) ||
+         (std::abs(cd_b) <= epsilon && pointOnSegment2D(c, d, b));
+}
+
 geometry_msgs::msg::PoseStamped makePose(
   const Point3 & point,
   const std_msgs::msg::Header & header)
@@ -146,7 +183,7 @@ void updatePathOrientations(nav_msgs::msg::Path & path)
 }
 
 std::mutex g_shared_maps_mutex;
-std::map<std::string, std::weak_ptr<FaelFrontierCore::SharedMapState>> g_shared_maps;
+std::weak_ptr<FaelFrontierCore::SharedMapState> g_shared_map;
 }  // namespace
 
 double Point3::distanceXY(const Point3 & other) const
@@ -176,17 +213,21 @@ void FaelFrontierCore::configure(
   logger_ = node->get_logger();
   clock_ = node->get_clock();
 
+  const std::string shared_parameter_prefix = "frontier_shared_config.";
   auto declare_if_missing = [&](const std::string & param, const auto & value) {
-      if (!node->has_parameter(name_ + "." + param)) {
-        node->declare_parameter(name_ + "." + param, rclcpp::ParameterValue(value));
+      const auto parameter_name = shared_parameter_prefix + param;
+      if (node->has_parameter(parameter_name)) {
+        return;
       }
+      node->declare_parameter(parameter_name, rclcpp::ParameterValue(value));
+    };
+  auto get_parameter = [&](const std::string & param, auto & value) {
+      node->get_parameter(shared_parameter_prefix + param, value);
     };
 
   declare_if_missing("frame_id", frame_id_);
   declare_if_missing("point_cloud_topic", point_cloud_topic_);
   declare_if_missing("visualization_topic_prefix", visualization_topic_prefix_);
-  declare_if_missing("shared_map", shared_map_);
-  declare_if_missing("shared_map_key", shared_map_key_);
   declare_if_missing("resolution", resolution_);
   declare_if_missing("depth_levels", depth_levels_);
   declare_if_missing("insert_depth", insert_depth_);
@@ -204,8 +245,7 @@ void FaelFrontierCore::configure(
   declare_if_missing("candidate_recompute_period", candidate_recompute_period_);
   declare_if_missing("frontier_attach_grid_size", frontier_attach_grid_size_);
   declare_if_missing("global_frontier_revalidate_max_cells", global_frontier_revalidate_max_cells_);
-  declare_if_missing("road_graph_dist", road_graph_dist_);
-  declare_if_missing("road_graph_connectable_num", road_graph_connectable_num_);
+  declare_if_missing("frontier_visibility_max_viewpoints", frontier_visibility_max_viewpoints_);
   declare_if_missing("viewpoint_gain_threshold", viewpoint_gain_threshold_);
   declare_if_missing("min_frontier_area", min_frontier_area_);
   declare_if_missing("candidate_separation", candidate_separation_);
@@ -230,62 +270,92 @@ void FaelFrontierCore::configure(
   declare_if_missing("sensor_height", sensor_height_);
   declare_if_missing("frontier_slope_deg", frontier_slope_deg_);
   declare_if_missing("viewpoint_slope_deg", viewpoint_slope_deg_);
+  declare_if_missing("topology_enabled", topology_enabled_);
+  declare_if_missing("topology_initialization_period", topology_initialization_period_);
+  declare_if_missing("topology_update_distance", topology_update_distance_);
+  declare_if_missing("topology_update_radius", topology_update_radius_);
+  declare_if_missing("topology_node_spacing", topology_node_spacing_);
+  declare_if_missing("topology_local_node_spacing", topology_local_node_spacing_);
+  declare_if_missing("topology_min_clearance", topology_min_clearance_);
+  declare_if_missing("topology_local_min_clearance", topology_local_min_clearance_);
+  declare_if_missing("topology_max_clearance", topology_max_clearance_);
+  declare_if_missing("topology_connection_radius", topology_connection_radius_);
+  declare_if_missing("topology_attach_radius", topology_attach_radius_);
+  declare_if_missing("topology_z_tolerance", topology_z_tolerance_);
+  declare_if_missing("topology_initial_min_nodes", topology_initial_min_nodes_);
+  declare_if_missing("topology_max_samples", topology_max_samples_);
+  declare_if_missing("topology_max_nodes", topology_max_nodes_);
+  declare_if_missing("topology_max_neighbors", topology_max_neighbors_);
 
-  node->get_parameter(name_ + ".frame_id", frame_id_);
-  node->get_parameter(name_ + ".point_cloud_topic", point_cloud_topic_);
-  node->get_parameter(name_ + ".visualization_topic_prefix", visualization_topic_prefix_);
-  node->get_parameter(name_ + ".shared_map", shared_map_);
-  node->get_parameter(name_ + ".shared_map_key", shared_map_key_);
-  node->get_parameter(name_ + ".resolution", resolution_);
-  node->get_parameter(name_ + ".depth_levels", depth_levels_);
-  node->get_parameter(name_ + ".insert_depth", insert_depth_);
-  node->get_parameter(name_ + ".insert_discrete", insert_discrete_);
-  node->get_parameter(name_ + ".simple_ray_casting", simple_ray_casting_);
-  node->get_parameter(name_ + ".early_stopping", early_stopping_);
-  node->get_parameter(name_ + ".publish_map_clouds", publish_map_clouds_);
-  node->get_parameter(name_ + ".map_publish_period", map_publish_period_);
-  node->get_parameter(name_ + ".max_range", max_range_);
-  node->get_parameter(name_ + ".sample_dist", sample_dist_);
-  node->get_parameter(name_ + ".local_range", local_range_);
-  node->get_parameter(name_ + ".candidate_visibility_range", candidate_visibility_range_);
-  node->get_parameter(name_ + ".reuse_cached_candidates", reuse_cached_candidates_);
-  node->get_parameter(name_ + ".cache_robot_move_threshold", cache_robot_move_threshold_);
-  node->get_parameter(name_ + ".candidate_recompute_period", candidate_recompute_period_);
-  node->get_parameter(name_ + ".frontier_attach_grid_size", frontier_attach_grid_size_);
-  node->get_parameter(name_ + ".global_frontier_revalidate_max_cells", global_frontier_revalidate_max_cells_);
-  node->get_parameter(name_ + ".road_graph_dist", road_graph_dist_);
-  node->get_parameter(name_ + ".road_graph_connectable_num", road_graph_connectable_num_);
-  node->get_parameter(name_ + ".viewpoint_gain_threshold", viewpoint_gain_threshold_);
-  node->get_parameter(name_ + ".min_frontier_area", min_frontier_area_);
-  node->get_parameter(name_ + ".candidate_separation", candidate_separation_);
-  node->get_parameter(name_ + ".frontier_distance_weight", frontier_distance_weight_);
-  node->get_parameter(name_ + ".min_candidate_count", min_candidate_count_);
-  node->get_parameter(name_ + ".max_candidate_count", max_candidate_count_);
-  node->get_parameter(name_ + ".frontier_gain", frontier_gain_);
-  node->get_parameter(name_ + ".unknown_gain_range", unknown_gain_range_);
-  node->get_parameter(name_ + ".unknown_gain_step", unknown_gain_step_);
-  node->get_parameter(name_ + ".min_unknown_gain", min_unknown_gain_);
-  node->get_parameter(name_ + ".distance_weight", distance_weight_);
-  node->get_parameter(name_ + ".visited_radius", visited_radius_);
-  node->get_parameter(name_ + ".visited_penalty", visited_penalty_);
-  node->get_parameter(name_ + ".known_gain_penalty", known_gain_penalty_);
-  node->get_parameter(name_ + ".min_candidate_dist", min_candidate_dist_);
-  node->get_parameter(name_ + ".min_robot_frontier_dist", min_robot_frontier_dist_);
-  node->get_parameter(name_ + ".robot_clear_radius", robot_clear_radius_);
-  node->get_parameter(name_ + ".unknown_clear_radius", unknown_clear_radius_);
-  node->get_parameter(name_ + ".viewpoint_free_z_min", viewpoint_free_z_min_);
-  node->get_parameter(name_ + ".viewpoint_free_z_max", viewpoint_free_z_max_);
-  node->get_parameter(name_ + ".viewpoint_free_z_step", viewpoint_free_z_step_);
-  node->get_parameter(name_ + ".sensor_height", sensor_height_);
-  node->get_parameter(name_ + ".frontier_slope_deg", frontier_slope_deg_);
-  node->get_parameter(name_ + ".viewpoint_slope_deg", viewpoint_slope_deg_);
+  get_parameter("frame_id", frame_id_);
+  get_parameter("point_cloud_topic", point_cloud_topic_);
+  get_parameter("visualization_topic_prefix", visualization_topic_prefix_);
+  get_parameter("resolution", resolution_);
+  get_parameter("depth_levels", depth_levels_);
+  get_parameter("insert_depth", insert_depth_);
+  get_parameter("insert_discrete", insert_discrete_);
+  get_parameter("simple_ray_casting", simple_ray_casting_);
+  get_parameter("early_stopping", early_stopping_);
+  get_parameter("publish_map_clouds", publish_map_clouds_);
+  get_parameter("map_publish_period", map_publish_period_);
+  get_parameter("max_range", max_range_);
+  get_parameter("sample_dist", sample_dist_);
+  get_parameter("local_range", local_range_);
+  get_parameter("candidate_visibility_range", candidate_visibility_range_);
+  get_parameter("reuse_cached_candidates", reuse_cached_candidates_);
+  get_parameter("cache_robot_move_threshold", cache_robot_move_threshold_);
+  get_parameter("candidate_recompute_period", candidate_recompute_period_);
+  get_parameter("frontier_attach_grid_size", frontier_attach_grid_size_);
+  get_parameter("global_frontier_revalidate_max_cells", global_frontier_revalidate_max_cells_);
+  get_parameter("frontier_visibility_max_viewpoints", frontier_visibility_max_viewpoints_);
+  get_parameter("viewpoint_gain_threshold", viewpoint_gain_threshold_);
+  get_parameter("min_frontier_area", min_frontier_area_);
+  get_parameter("candidate_separation", candidate_separation_);
+  get_parameter("frontier_distance_weight", frontier_distance_weight_);
+  get_parameter("min_candidate_count", min_candidate_count_);
+  get_parameter("max_candidate_count", max_candidate_count_);
+  get_parameter("frontier_gain", frontier_gain_);
+  get_parameter("unknown_gain_range", unknown_gain_range_);
+  get_parameter("unknown_gain_step", unknown_gain_step_);
+  get_parameter("min_unknown_gain", min_unknown_gain_);
+  get_parameter("distance_weight", distance_weight_);
+  get_parameter("visited_radius", visited_radius_);
+  get_parameter("visited_penalty", visited_penalty_);
+  get_parameter("known_gain_penalty", known_gain_penalty_);
+  get_parameter("min_candidate_dist", min_candidate_dist_);
+  get_parameter("min_robot_frontier_dist", min_robot_frontier_dist_);
+  get_parameter("robot_clear_radius", robot_clear_radius_);
+  get_parameter("unknown_clear_radius", unknown_clear_radius_);
+  get_parameter("viewpoint_free_z_min", viewpoint_free_z_min_);
+  get_parameter("viewpoint_free_z_max", viewpoint_free_z_max_);
+  get_parameter("viewpoint_free_z_step", viewpoint_free_z_step_);
+  get_parameter("sensor_height", sensor_height_);
+  get_parameter("frontier_slope_deg", frontier_slope_deg_);
+  get_parameter("viewpoint_slope_deg", viewpoint_slope_deg_);
+  get_parameter("topology_enabled", topology_enabled_);
+  get_parameter("topology_initialization_period", topology_initialization_period_);
+  get_parameter("topology_update_distance", topology_update_distance_);
+  get_parameter("topology_update_radius", topology_update_radius_);
+  get_parameter("topology_node_spacing", topology_node_spacing_);
+  get_parameter("topology_local_node_spacing", topology_local_node_spacing_);
+  get_parameter("topology_min_clearance", topology_min_clearance_);
+  get_parameter("topology_local_min_clearance", topology_local_min_clearance_);
+  get_parameter("topology_max_clearance", topology_max_clearance_);
+  get_parameter("topology_connection_radius", topology_connection_radius_);
+  get_parameter("topology_attach_radius", topology_attach_radius_);
+  get_parameter("topology_z_tolerance", topology_z_tolerance_);
+  get_parameter("topology_initial_min_nodes", topology_initial_min_nodes_);
+  get_parameter("topology_max_samples", topology_max_samples_);
+  get_parameter("topology_max_nodes", topology_max_nodes_);
+  get_parameter("topology_max_neighbors", topology_max_neighbors_);
 
-  const std::string map_key = shared_map_ ? shared_map_key_ : name_;
-  map_state_ = getSharedMapState(map_key, resolution_, depth_levels_);
+  map_state_ = getSharedMapState(resolution_, depth_levels_);
 
+  bool owns_shared_map = false;
   {
     std::lock_guard<std::mutex> lock(map_state_->mutex);
     if (!map_state_->cloud_sub) {
+      owns_shared_map = true;
       map_state_->owner_name = name_;
       map_state_->cloud_sub = node->create_subscription<sensor_msgs::msg::PointCloud2>(
         point_cloud_topic_, rclcpp::SensorDataQoS(),
@@ -305,31 +375,35 @@ void FaelFrontierCore::configure(
     topic_prefix + "/ufomap_occupied_cloud", rclcpp::SystemDefaultsQoS());
   free_map_pub_ = node->create_publisher<sensor_msgs::msg::PointCloud2>(
     topic_prefix + "/ufomap_free_cloud", rclcpp::SystemDefaultsQoS());
+  if (owns_shared_map) {
+    const auto period = std::chrono::milliseconds(
+      static_cast<int64_t>(std::max(0.1, topology_initialization_period_) * 1000.0));
+    topology_initialization_timer_ = node->create_wall_timer(
+      period, std::bind(&FaelFrontierCore::topologyInitializationTimerCallback, this));
+  }
   last_map_publish_time_ = clock_->now();
 
   RCLCPP_INFO(
     logger_,
     "[%s] configured FAEL UFOMap frontier selector: cloud=%s target_frame=%s "
-    "resolution=%.3f depth_levels=%d insert_depth=%d shared_map=%s key=%s owner=%s",
+    "resolution=%.3f depth_levels=%d insert_depth=%d shared_owner=%s",
     name_.c_str(), point_cloud_topic_.c_str(), frame_id_.c_str(), resolution_,
-    depth_levels_, insert_depth_, shared_map_ ? "true" : "false", map_key.c_str(),
-    map_state_->owner_name.c_str());
+    depth_levels_, insert_depth_, map_state_->owner_name.c_str());
 }
 
 std::shared_ptr<FaelFrontierCore::SharedMapState> FaelFrontierCore::getSharedMapState(
-  const std::string & key,
   double resolution,
   int depth_levels)
 {
   std::lock_guard<std::mutex> lock(g_shared_maps_mutex);
-  if (auto existing = g_shared_maps[key].lock()) {
+  if (auto existing = g_shared_map.lock()) {
     return existing;
   }
 
   auto state = std::make_shared<SharedMapState>();
   state->map = std::make_unique<ufo::map::OccupancyMap>(resolution, depth_levels, true);
   state->map->enableChangeDetection(true);
-  g_shared_maps[key] = state;
+  g_shared_map = state;
   return state;
 }
 
@@ -350,6 +424,7 @@ void FaelFrontierCore::activate()
   if (free_map_pub_) {
     free_map_pub_->on_activate();
   }
+  topologyInitializationTimerCallback();
 }
 
 void FaelFrontierCore::deactivate()
@@ -373,6 +448,7 @@ void FaelFrontierCore::deactivate()
 
 void FaelFrontierCore::cleanup()
 {
+  topology_initialization_timer_.reset();
   map_state_.reset();
   candidate_pub_.reset();
   topology_pub_.reset();
@@ -407,6 +483,8 @@ void FaelFrontierCore::pointCloudCallback(const sensor_msgs::msg::PointCloud2::S
   tf2::Transform sensor_tf(sensor_q, tf2::Vector3(t.x, t.y, t.z));
 
   std::lock_guard<std::mutex> lock(map_state_->mutex);
+  map_state_->latest_sensor_position = sensor;
+  map_state_->has_latest_sensor_position = true;
   ufo::map::PointCloud cloud;
   cloud.reserve(static_cast<std::size_t>(msg->width) * msg->height);
   sensor_msgs::PointCloud2ConstIterator<float> iter_x(*msg, "x");
@@ -458,7 +536,45 @@ void FaelFrontierCore::pointCloudCallback(const sensor_msgs::msg::PointCloud2::S
     ++map_state_->map_revision;
   }
   map_state_->map->resetChangeDetection();
+  map_state_->topology_plane_z = sensor.z;
+  const bool initialize_from_accumulated_map =
+    map_state_->initialized_from_accumulated_map == false;
+  const bool topology_updated = updateTopologyMap(
+    sensor, initialize_from_accumulated_map);
+  if (topology_updated) {
+    publishTopology(map_state_->candidates, sensor, nullptr, false);
+    if (topology_pub_ && topology_pub_->is_activated() && map_state_->has_topology) {
+      map_state_->startup_topology_published = true;
+    }
+  }
   publishMapClouds();
+}
+
+void FaelFrontierCore::topologyInitializationTimerCallback()
+{
+  if (!map_state_) {
+    return;
+  }
+  std::lock_guard<std::mutex> lock(map_state_->mutex);
+  if (!map_state_->has_latest_sensor_position || map_state_->map_revision == 0) {
+    return;
+  }
+
+  const bool needs_initial_generation =
+    map_state_->initialized_from_accumulated_map == false &&
+    (map_state_->has_topology_update_origin == false ||
+    map_state_->topology_map_revision != map_state_->map_revision);
+  if (needs_initial_generation) {
+    updateTopologyMap(map_state_->latest_sensor_position, true);
+  }
+
+  if (map_state_->has_topology && map_state_->startup_topology_published == false &&
+    topology_pub_ && topology_pub_->is_activated())
+  {
+    publishTopology(
+      map_state_->candidates, map_state_->latest_sensor_position, nullptr, false);
+    map_state_->startup_topology_published = true;
+  }
 }
 
 ufo::map::Point3 FaelFrontierCore::toUfoPoint(const Point3 & point) const
@@ -566,6 +682,528 @@ bool FaelFrontierCore::isCollisionFree2D(const Point3 & from, const Point3 & to)
     }
   }
   return true;
+}
+
+bool FaelFrontierCore::isKnownFree2D(const Point3 & from, const Point3 & to) const
+{
+  const double distance = from.distanceXY(to);
+  const double step_size = std::max(resolution_ * 0.5, 0.1);
+  const int steps = std::max(1, static_cast<int>(std::ceil(distance / step_size)));
+  const double plane_z = map_state_->topology_plane_z;
+  for (int i = 0; i <= steps; ++i) {
+    const double t = static_cast<double>(i) / static_cast<double>(steps);
+    Point3 sample{
+      from.x + (to.x - from.x) * t,
+      from.y + (to.y - from.y) * t,
+      plane_z};
+    if (!map_state_->map->isFree(toUfoPoint(sample), insert_depth_) ||
+      isNearOccupied(sample, robot_clear_radius_))
+    {
+      return false;
+    }
+  }
+  return true;
+}
+
+bool FaelFrontierCore::isFrontierVisible(
+  const Point3 & viewpoint,
+  const Point3 & frontier) const
+{
+  return map_state_->map->isCollisionFree(
+    toUfoPoint(viewpoint), toUfoPoint(frontier), true, insert_depth_);
+}
+
+double FaelFrontierCore::topologyClearance(const Point3 & point) const
+{
+  const double max_clearance = std::max(topology_min_clearance_, topology_max_clearance_);
+  const int cells = std::max(1, static_cast<int>(std::ceil(max_clearance / resolution_)));
+  double clearance = max_clearance;
+  for (int dx = -cells; dx <= cells; ++dx) {
+    for (int dy = -cells; dy <= cells; ++dy) {
+      if (dx == 0 && dy == 0) {
+        continue;
+      }
+      const double distance = std::hypot(dx * resolution_, dy * resolution_);
+      if (distance >= clearance || distance > max_clearance) {
+        continue;
+      }
+      const ufo::map::Point3 sample(
+        point.x + dx * resolution_, point.y + dy * resolution_, point.z);
+      if (!map_state_->map->isFree(sample, insert_depth_)) {
+        clearance = distance;
+      }
+    }
+  }
+  return clearance;
+}
+
+bool FaelFrontierCore::updateTopologyMap(
+  const Point3 & current,
+  bool initialize_from_accumulated_map)
+{
+  if (!topology_enabled_) {
+    map_state_->topology_nodes.clear();
+    map_state_->last_topology_path.clear();
+    map_state_->has_topology = false;
+    map_state_->has_topology_update_origin = false;
+    map_state_->initialized_from_accumulated_map = false;
+    return false;
+  }
+
+  Point3 update_center{current.x, current.y, map_state_->topology_plane_z};
+  const double update_distance = std::max(resolution_, topology_update_distance_);
+  const double motion_since_update = map_state_->has_topology_update_origin ?
+    update_center.distanceXY(map_state_->topology_update_origin) : 0.0;
+  const bool force_initial_update =
+    initialize_from_accumulated_map &&
+    map_state_->initialized_from_accumulated_map == false;
+  if (map_state_->has_topology_update_origin && map_state_->has_topology &&
+    motion_since_update < update_distance && force_initial_update == false)
+  {
+    return false;
+  }
+
+  const auto started = std::chrono::steady_clock::now();
+  const auto now = clock_->now();
+  const double local_priority_radius = std::max(
+    topology_update_radius_, topology_node_spacing_ * 2.0);
+  const double update_radius = force_initial_update ?
+    std::numeric_limits<double>::infinity() :
+    local_priority_radius;
+  const double node_spacing = std::max(resolution_, topology_node_spacing_);
+  const double connection_radius = std::max(node_spacing, topology_connection_radius_);
+  const std::size_t old_node_count = map_state_->topology_nodes.size();
+
+  std::vector<std::size_t> old_to_new(old_node_count, old_node_count);
+  std::vector<TopologyNode> nodes;
+  nodes.reserve(static_cast<std::size_t>(std::max(1, topology_max_nodes_)));
+  for (std::size_t i = 0; i < old_node_count; ++i) {
+    const auto & old_node = map_state_->topology_nodes[i];
+    if (old_node.point.distanceXY(update_center) <= update_radius) {
+      continue;
+    }
+    old_to_new[i] = nodes.size();
+    nodes.push_back(TopologyNode{old_node.point, old_node.clearance, {}});
+  }
+  const std::size_t retained_node_count = nodes.size();
+  const auto retained_nodes_done = std::chrono::steady_clock::now();
+
+  auto edge_crosses_graph = [&](std::size_t from, std::size_t to) {
+      for (std::size_t i = 0; i < nodes.size(); ++i) {
+        for (const auto neighbor : nodes[i].neighbors) {
+          if (neighbor <= i || neighbor >= nodes.size()) {
+            continue;
+          }
+          if (i == from || i == to || neighbor == from || neighbor == to) {
+            continue;
+          }
+          if (segmentsIntersect2D(
+              nodes[from].point, nodes[to].point,
+              nodes[i].point, nodes[neighbor].point))
+          {
+            return true;
+          }
+        }
+      }
+      return false;
+    };
+
+  struct EdgeCandidate
+  {
+    double distance;
+    std::size_t from;
+    std::size_t to;
+  };
+  std::vector<EdgeCandidate> retained_edges;
+  for (std::size_t i = 0; i < old_node_count; ++i) {
+    if (old_to_new[i] == old_node_count) {
+      continue;
+    }
+    for (const auto neighbor : map_state_->topology_nodes[i].neighbors) {
+      if (neighbor <= i || neighbor >= old_node_count ||
+        old_to_new[neighbor] == old_node_count)
+      {
+        continue;
+      }
+      const auto from = old_to_new[i];
+      const auto to = old_to_new[neighbor];
+      const double distance = nodes[from].point.distanceXY(nodes[to].point);
+      if (distance <= connection_radius) {
+        retained_edges.push_back(EdgeCandidate{distance, from, to});
+      }
+    }
+  }
+  std::sort(
+    retained_edges.begin(), retained_edges.end(),
+    [](const EdgeCandidate & lhs, const EdgeCandidate & rhs) {
+      return lhs.distance < rhs.distance;
+    });
+  const std::size_t max_neighbors = static_cast<std::size_t>(
+    std::max(1, topology_max_neighbors_));
+  for (const auto & edge : retained_edges) {
+    if (nodes[edge.from].neighbors.size() >= max_neighbors ||
+      nodes[edge.to].neighbors.size() >= max_neighbors ||
+      !isKnownFree2D(nodes[edge.from].point, nodes[edge.to].point) ||
+      edge_crosses_graph(edge.from, edge.to))
+    {
+      continue;
+    }
+    nodes[edge.from].neighbors.push_back(edge.to);
+    nodes[edge.to].neighbors.push_back(edge.from);
+  }
+  const auto retained_edges_done = std::chrono::steady_clock::now();
+
+  const double sample_spacing = std::max(resolution_, topology_node_spacing_ * 0.5);
+  const double local_sample_spacing = std::max(
+    resolution_, topology_local_node_spacing_ * 0.5);
+  std::unordered_map<GridCell, Point3, GridCellHash> free_samples;
+  std::unordered_map<GridCell, Point3, GridCellHash> local_free_samples;
+  free_samples.reserve(static_cast<std::size_t>(std::max(1, topology_max_samples_)));
+  local_free_samples.reserve(512);
+
+  for (auto it = map_state_->map->beginLeaves(false, true, false, false, insert_depth_),
+    it_end = map_state_->map->endLeaves(); it != it_end; ++it)
+  {
+    const auto center = it.getCenter();
+    Point3 sample{center.x(), center.y(), map_state_->topology_plane_z};
+    const double distance_to_robot = sample.distanceXY(update_center);
+    if (distance_to_robot > update_radius ||
+      std::abs(center.z() - map_state_->topology_plane_z) > topology_z_tolerance_)
+    {
+      continue;
+    }
+    if (!map_state_->map->isFree(toUfoPoint(sample), insert_depth_)) {
+      continue;
+    }
+    if (force_initial_update && distance_to_robot <= local_priority_radius) {
+      local_free_samples.emplace(toGridCell(sample, local_sample_spacing), sample);
+      continue;
+    }
+    const auto sample_cell = toGridCell(sample, sample_spacing);
+    if (free_samples.size() < static_cast<std::size_t>(std::max(1, topology_max_samples_))) {
+      free_samples.emplace(sample_cell, sample);
+    }
+    if (force_initial_update == false &&
+      free_samples.size() >= static_cast<std::size_t>(std::max(1, topology_max_samples_)))
+    {
+      break;
+    }
+  }
+  const auto sampling_done = std::chrono::steady_clock::now();
+
+  std::vector<TopologyNode> bubbles;
+  bubbles.reserve(free_samples.size() + local_free_samples.size());
+  for (const auto & entry : local_free_samples) {
+    const double clearance = topologyClearance(entry.second);
+    if (clearance + 1e-6 >= topology_local_min_clearance_) {
+      bubbles.push_back(TopologyNode{entry.second, clearance, {}});
+    }
+  }
+  for (const auto & entry : free_samples) {
+    const double clearance = topologyClearance(entry.second);
+    if (clearance + 1e-6 >= topology_min_clearance_) {
+      bubbles.push_back(TopologyNode{entry.second, clearance, {}});
+    }
+  }
+  std::sort(
+    bubbles.begin(), bubbles.end(),
+    [&](const TopologyNode & lhs, const TopologyNode & rhs) {
+      if (force_initial_update) {
+        const bool lhs_local = lhs.point.distanceXY(update_center) <= local_priority_radius;
+        const bool rhs_local = rhs.point.distanceXY(update_center) <= local_priority_radius;
+        if (lhs_local != rhs_local) {
+          return lhs_local;
+        }
+      }
+      return lhs.clearance > rhs.clearance;
+    });
+  const auto clearance_done = std::chrono::steady_clock::now();
+
+  const std::size_t new_node_start = nodes.size();
+  for (const auto & bubble : bubbles) {
+    const bool local_node = bubble.point.distanceXY(update_center) <= local_priority_radius;
+    const double separation = local_node ?
+      std::max(resolution_, topology_local_node_spacing_) : node_spacing;
+    bool covered = false;
+    for (const auto & node : nodes) {
+      if (bubble.point.distanceXY(node.point) < separation) {
+        covered = true;
+        break;
+      }
+    }
+    if (!covered) {
+      nodes.push_back(bubble);
+      if (nodes.size() >= static_cast<std::size_t>(std::max(1, topology_max_nodes_))) {
+        break;
+      }
+    }
+  }
+  bool robot_anchor_added = false;
+  double nearest_robot_node = std::numeric_limits<double>::infinity();
+  for (const auto & node : nodes) {
+    nearest_robot_node = std::min(
+      nearest_robot_node, node.point.distanceXY(update_center));
+  }
+  const std::size_t max_topology_nodes = static_cast<std::size_t>(
+    std::max(1, topology_max_nodes_));
+  if (force_initial_update) {
+    nodes.erase(
+      std::remove_if(
+        nodes.begin(), nodes.end(),
+        [&](const TopologyNode & node) {
+          return node.point.distanceXY(update_center) < resolution_ * 0.5;
+        }),
+      nodes.end());
+    if (nodes.size() >= max_topology_nodes) {
+      nodes.pop_back();
+    }
+    nodes.push_back(TopologyNode{
+      update_center, std::max(robot_clear_radius_, topology_local_min_clearance_), {}});
+    robot_anchor_added = true;
+  } else if (nearest_robot_node > std::max(resolution_, topology_local_node_spacing_) &&
+    map_state_->map->isFree(toUfoPoint(update_center), insert_depth_) &&
+    nodes.size() < max_topology_nodes)
+  {
+    nodes.push_back(TopologyNode{
+      update_center, std::max(robot_clear_radius_, topology_local_min_clearance_), {}});
+    robot_anchor_added = true;
+  }
+  const auto node_selection_done = std::chrono::steady_clock::now();
+
+  std::unordered_map<GridCell, std::vector<std::size_t>, GridCellHash> node_grid;
+  for (std::size_t i = 0; i < nodes.size(); ++i) {
+    node_grid[toGridCell(nodes[i].point, connection_radius)].push_back(i);
+  }
+  std::vector<EdgeCandidate> new_edges;
+  for (std::size_t i = new_node_start; i < nodes.size(); ++i) {
+    for (const auto j : radiusCandidates(
+        node_grid, nodes[i].point, connection_radius, connection_radius))
+    {
+      if (j == i || (j >= new_node_start && j < i)) {
+        continue;
+      }
+      const double distance = nodes[i].point.distanceXY(nodes[j].point);
+      if (distance <= connection_radius) {
+        new_edges.push_back(EdgeCandidate{distance, i, j});
+      }
+    }
+  }
+  std::sort(
+    new_edges.begin(), new_edges.end(),
+    [](const EdgeCandidate & lhs, const EdgeCandidate & rhs) {
+      return lhs.distance < rhs.distance;
+    });
+  const auto edge_candidates_done = std::chrono::steady_clock::now();
+  for (const auto & edge : new_edges) {
+    if (nodes[edge.from].neighbors.size() >= max_neighbors ||
+      nodes[edge.to].neighbors.size() >= max_neighbors ||
+      !isKnownFree2D(nodes[edge.from].point, nodes[edge.to].point) ||
+      edge_crosses_graph(edge.from, edge.to))
+    {
+      continue;
+    }
+    nodes[edge.from].neighbors.push_back(edge.to);
+    nodes[edge.to].neighbors.push_back(edge.from);
+  }
+  const auto edge_connection_done = std::chrono::steady_clock::now();
+
+  std::size_t edge_count = 0;
+  for (const auto & node : nodes) {
+    edge_count += node.neighbors.size();
+  }
+  map_state_->topology_nodes = std::move(nodes);
+  map_state_->last_topology_path.clear();
+  map_state_->topology_map_revision = map_state_->map_revision;
+  map_state_->topology_stamp = now;
+  map_state_->topology_update_origin = update_center;
+  map_state_->has_topology_update_origin = true;
+  map_state_->has_topology = !map_state_->topology_nodes.empty();
+  if (initialize_from_accumulated_map) {
+    map_state_->startup_topology_published = false;
+  }
+  if (initialize_from_accumulated_map &&
+    map_state_->topology_nodes.size() >=
+    static_cast<std::size_t>(std::max(1, topology_initial_min_nodes_)))
+  {
+    map_state_->initialized_from_accumulated_map = true;
+  }
+
+  RCLCPP_INFO(
+    logger_,
+    "[%s] incrementally updated topology after %.2fm motion: radius=%.2fm retained=%zu "
+    "removed=%zu added=%zu nodes=%zu edges=%zu revision=%lu total=%.2fms "
+    "phases_ms{retain_nodes=%.2f retained_edges=%.2f free_sample=%.2f clearance=%.2f "
+    "node_select=%.2f edge_candidates=%.2f new_edge_connect=%.2f finalize=%.2f} "
+    "counts{free_samples=%zu local_priority_samples=%zu bubbles=%zu robot_anchor=%s "
+    "retained_edge_candidates=%zu new_edge_candidates=%zu}",
+    name_.c_str(), motion_since_update,
+    update_radius, retained_node_count, old_node_count - retained_node_count,
+    map_state_->topology_nodes.size() - retained_node_count,
+    map_state_->topology_nodes.size(),
+    edge_count / 2, static_cast<unsigned long>(map_state_->map_revision),
+    std::chrono::duration<double, std::milli>(
+      std::chrono::steady_clock::now() - started).count(),
+    std::chrono::duration<double, std::milli>(retained_nodes_done - started).count(),
+    std::chrono::duration<double, std::milli>(retained_edges_done - retained_nodes_done).count(),
+    std::chrono::duration<double, std::milli>(sampling_done - retained_edges_done).count(),
+    std::chrono::duration<double, std::milli>(clearance_done - sampling_done).count(),
+    std::chrono::duration<double, std::milli>(node_selection_done - clearance_done).count(),
+    std::chrono::duration<double, std::milli>(edge_candidates_done - node_selection_done).count(),
+    std::chrono::duration<double, std::milli>(edge_connection_done - edge_candidates_done).count(),
+    std::chrono::duration<double, std::milli>(
+      std::chrono::steady_clock::now() - edge_connection_done).count(),
+    free_samples.size(), local_free_samples.size(), bubbles.size(),
+    robot_anchor_added ? "added" : "existing", retained_edges.size(), new_edges.size());
+  return true;
+}
+
+std::vector<Point3> FaelFrontierCore::searchTopologyPath(
+  const Point3 & start,
+  const Point3 & goal) const
+{
+  const auto started = std::chrono::steady_clock::now();
+  const auto & nodes = map_state_->topology_nodes;
+  if (nodes.empty()) {
+    RCLCPP_WARN(logger_, "[%s] topology A*: graph is empty", name_.c_str());
+    return {};
+  }
+
+  const std::size_t start_index = nodes.size();
+  const std::size_t goal_index = nodes.size() + 1;
+  const std::size_t graph_size = nodes.size() + 2;
+  std::vector<std::vector<std::pair<std::size_t, double>>> adjacency(graph_size);
+  for (std::size_t i = 0; i < nodes.size(); ++i) {
+    for (const auto neighbor : nodes[i].neighbors) {
+      adjacency[i].emplace_back(neighbor, nodes[i].point.distanceXY(nodes[neighbor].point));
+    }
+  }
+  const auto adjacency_done = std::chrono::steady_clock::now();
+
+  auto attach_virtual_node = [&](std::size_t index, const Point3 & point) {
+      std::vector<std::pair<double, std::size_t>> candidates;
+      for (std::size_t i = 0; i < nodes.size(); ++i) {
+        const double distance = point.distanceXY(nodes[i].point);
+        if (distance <= topology_attach_radius_) {
+          candidates.emplace_back(distance, i);
+        }
+      }
+      std::sort(candidates.begin(), candidates.end());
+      int attached = 0;
+      for (const auto & candidate : candidates) {
+        if (attached >= std::max(1, topology_max_neighbors_)) {
+          break;
+        }
+        if (!isKnownFree2D(point, nodes[candidate.second].point)) {
+          continue;
+        }
+        adjacency[index].emplace_back(candidate.second, candidate.first);
+        adjacency[candidate.second].emplace_back(index, candidate.first);
+        ++attached;
+      }
+    };
+  attach_virtual_node(start_index, start);
+  attach_virtual_node(goal_index, goal);
+  if (start.distanceXY(goal) <= topology_attach_radius_ && isKnownFree2D(start, goal)) {
+    const double distance = start.distanceXY(goal);
+    adjacency[start_index].emplace_back(goal_index, distance);
+    adjacency[goal_index].emplace_back(start_index, distance);
+  }
+  const auto attachment_done = std::chrono::steady_clock::now();
+  if (adjacency[start_index].empty() || adjacency[goal_index].empty()) {
+    RCLCPP_WARN(
+      logger_,
+      "[%s] topology A* attachment failed: nodes=%zu start_edges=%zu goal_edges=%zu "
+      "phases_ms{adjacency=%.2f attach=%.2f total=%.2f}",
+      name_.c_str(), nodes.size(), adjacency[start_index].size(), adjacency[goal_index].size(),
+      std::chrono::duration<double, std::milli>(adjacency_done - started).count(),
+      std::chrono::duration<double, std::milli>(attachment_done - adjacency_done).count(),
+      std::chrono::duration<double, std::milli>(attachment_done - started).count());
+    return {};
+  }
+
+  auto point_at = [&](std::size_t index) -> const Point3 & {
+      if (index == start_index) {
+        return start;
+      }
+      if (index == goal_index) {
+        return goal;
+      }
+      return nodes[index].point;
+    };
+  using QueueItem = std::pair<double, std::size_t>;
+  std::priority_queue<QueueItem, std::vector<QueueItem>, std::greater<QueueItem>> open;
+  std::vector<double> g_score(graph_size, std::numeric_limits<double>::infinity());
+  std::vector<std::size_t> parent(graph_size, graph_size);
+  std::vector<bool> closed(graph_size, false);
+  g_score[start_index] = 0.0;
+  open.emplace(start.distanceXY(goal), start_index);
+  std::size_t expanded_nodes = 0;
+
+  while (!open.empty()) {
+    const auto current_index = open.top().second;
+    open.pop();
+    if (closed[current_index]) {
+      continue;
+    }
+    if (current_index == goal_index) {
+      break;
+    }
+    closed[current_index] = true;
+    ++expanded_nodes;
+    for (const auto & edge : adjacency[current_index]) {
+      if (closed[edge.first]) {
+        continue;
+      }
+      const double tentative = g_score[current_index] + edge.second;
+      if (tentative >= g_score[edge.first]) {
+        continue;
+      }
+      parent[edge.first] = current_index;
+      g_score[edge.first] = tentative;
+      const double heuristic = point_at(edge.first).distanceXY(goal) * 1.001;
+      open.emplace(tentative + heuristic, edge.first);
+    }
+  }
+  const auto search_done = std::chrono::steady_clock::now();
+  if (!std::isfinite(g_score[goal_index])) {
+    RCLCPP_WARN(
+      logger_,
+      "[%s] topology A* no path: nodes=%zu expanded=%zu start_edges=%zu goal_edges=%zu "
+      "phases_ms{adjacency=%.2f attach=%.2f search=%.2f total=%.2f}",
+      name_.c_str(), nodes.size(), expanded_nodes,
+      adjacency[start_index].size(), adjacency[goal_index].size(),
+      std::chrono::duration<double, std::milli>(adjacency_done - started).count(),
+      std::chrono::duration<double, std::milli>(attachment_done - adjacency_done).count(),
+      std::chrono::duration<double, std::milli>(search_done - attachment_done).count(),
+      std::chrono::duration<double, std::milli>(search_done - started).count());
+    return {};
+  }
+
+  std::vector<Point3> path;
+  for (std::size_t index = goal_index; index != graph_size; index = parent[index]) {
+    path.push_back(point_at(index));
+    if (index == start_index) {
+      break;
+    }
+  }
+  if (path.empty() || path.back().distanceXY(start) > 1e-6) {
+    return {};
+  }
+  std::reverse(path.begin(), path.end());
+  const auto finished = std::chrono::steady_clock::now();
+  RCLCPP_INFO(
+    logger_,
+    "[%s] topology A* success: nodes=%zu expanded=%zu waypoints=%zu cost=%.2f "
+    "start_edges=%zu goal_edges=%zu phases_ms{adjacency=%.2f attach=%.2f search=%.2f "
+    "backtrack=%.2f total=%.2f}",
+    name_.c_str(), nodes.size(), expanded_nodes, path.size(), g_score[goal_index],
+    adjacency[start_index].size(), adjacency[goal_index].size(),
+    std::chrono::duration<double, std::milli>(adjacency_done - started).count(),
+    std::chrono::duration<double, std::milli>(attachment_done - adjacency_done).count(),
+    std::chrono::duration<double, std::milli>(search_done - attachment_done).count(),
+    std::chrono::duration<double, std::milli>(finished - search_done).count(),
+    std::chrono::duration<double, std::milli>(finished - started).count());
+  return path;
 }
 
 bool FaelFrontierCore::isViewpointConnectionFree(const Point3 & from, const Point3 & to) const
@@ -763,6 +1401,11 @@ std::vector<Candidate> FaelFrontierCore::attachFrontiers(
   const std::vector<Point3> & frontiers,
   const Point3 & current) const
 {
+  const auto started = std::chrono::steady_clock::now();
+  std::size_t cache_hits = 0;
+  std::size_t nearby_pairs = 0;
+  std::size_t visibility_checks = 0;
+  std::size_t blocked_rays = 0;
   std::unordered_map<std::size_t, std::vector<Point3>> attached;
   const double slope_limit = std::tan(viewpoint_slope_deg_ * M_PI / 180.0);
   const double frontier_cell_area =
@@ -819,36 +1462,56 @@ std::vector<Candidate> FaelFrontierCore::attachFrontiers(
   for (const auto & frontier : frontiers) {
     const auto frontier_code = map_state_->map->toCode(
       frontier.x, frontier.y, frontier.z, insert_depth_);
-    if (frontier.distanceXY(current) > max_range_ * 1.5 &&
-        !map_state_->frontiers_viewpoints.empty())
-    {
-      const auto old = map_state_->frontiers_viewpoints.find(frontier_code);
-      if (old != map_state_->frontiers_viewpoints.end()) {
-        const auto old_idx = representative_index(old->second);
-        next_frontiers_viewpoints[frontier_code] = old->second;
-        attached[old_idx].push_back(frontier);
-        continue;
+    const auto old = map_state_->frontiers_viewpoints.find(frontier_code);
+    if (old != map_state_->frontiers_viewpoints.end()) {
+      const double old_distance = frontier.distanceXY(old->second);
+      if (old_distance > 1e-6 && old_distance < attach_range &&
+        std::fabs(frontier.z - old->second.z) / old_distance < slope_limit &&
+        map_state_->map->isFree(toUfoPoint(old->second), insert_depth_))
+      {
+        ++visibility_checks;
+        if (isFrontierVisible(old->second, frontier)) {
+          const auto old_idx = representative_index(old->second);
+          next_frontiers_viewpoints[frontier_code] = old->second;
+          attached[old_idx].push_back(frontier);
+          ++cache_hits;
+          continue;
+        }
+        ++blocked_rays;
       }
     }
 
-    double best_dist = std::numeric_limits<double>::max();
     std::optional<std::size_t> best_idx;
     const auto nearby_viewpoints =
       radiusCandidates(viewpoint_grid, frontier, attach_range, grid_size);
+    std::vector<std::pair<double, std::size_t>> ordered_viewpoints;
+    ordered_viewpoints.reserve(nearby_viewpoints.size());
     for (const auto i : nearby_viewpoints) {
       const auto & viewpoint = representative_points[i];
       const double dist_xy = frontier.distanceXY(viewpoint);
-      if (dist_xy >= attach_range || dist_xy >= best_dist || dist_xy <= 1e-6) {
+      if (dist_xy >= attach_range || dist_xy <= 1e-6) {
         continue;
       }
       if (std::fabs(frontier.z - viewpoint.z) / dist_xy >= slope_limit) {
         continue;
       }
-      if (!isViewpointConnectionFree(viewpoint, frontier)) {
+      ordered_viewpoints.emplace_back(dist_xy, i);
+    }
+    std::sort(ordered_viewpoints.begin(), ordered_viewpoints.end());
+    nearby_pairs += ordered_viewpoints.size();
+    int checked_viewpoints = 0;
+    for (const auto & ordered : ordered_viewpoints) {
+      if (checked_viewpoints >= std::max(1, frontier_visibility_max_viewpoints_)) {
+        break;
+      }
+      ++checked_viewpoints;
+      ++visibility_checks;
+      if (!isFrontierVisible(representative_points[ordered.second], frontier)) {
+        ++blocked_rays;
         continue;
       }
-      best_dist = dist_xy;
-      best_idx = i;
+      best_idx = ordered.second;
+      break;
     }
 
     if (best_idx) {
@@ -857,6 +1520,7 @@ std::vector<Candidate> FaelFrontierCore::attachFrontiers(
     }
   }
   map_state_->frontiers_viewpoints = std::move(next_frontiers_viewpoints);
+  const auto association_done = std::chrono::steady_clock::now();
 
   std::vector<Candidate> candidates;
   for (const auto & item : attached) {
@@ -922,6 +1586,7 @@ std::vector<Candidate> FaelFrontierCore::attachFrontiers(
       visited_penalty - known_penalty;
     candidates.push_back(candidate);
   }
+  const auto scoring_done = std::chrono::steady_clock::now();
 
   std::sort(
     candidates.begin(), candidates.end(),
@@ -969,90 +1634,20 @@ std::vector<Candidate> FaelFrontierCore::attachFrontiers(
     }
   }
 
+  const auto finished = std::chrono::steady_clock::now();
+  RCLCPP_INFO(
+    logger_,
+    "[%s] FAEL-style frontier attachment: frontiers=%zu viewpoints=%zu attached_groups=%zu "
+    "candidates=%zu kept=%zu cache_hits=%zu nearby_pairs=%zu visibility_checks=%zu "
+    "blocked_rays=%zu phases_ms{associate_raycast=%.2f score=%.2f filter=%.2f total=%.2f}",
+    name_.c_str(), frontiers.size(), representative_points.size(), attached.size(),
+    candidates.size(), filtered.size(), cache_hits, nearby_pairs, visibility_checks, blocked_rays,
+    std::chrono::duration<double, std::milli>(association_done - started).count(),
+    std::chrono::duration<double, std::milli>(scoring_done - association_done).count(),
+    std::chrono::duration<double, std::milli>(finished - scoring_done).count(),
+    std::chrono::duration<double, std::milli>(finished - started).count());
+
   return filtered;
-}
-
-RoadGraph FaelFrontierCore::buildRoadGraph(
-  const Point3 & current,
-  const std::vector<Candidate> & candidates) const
-{
-  RoadGraph graph;
-  auto add_node = [&](const Point3 & point, double min_interval) {
-      for (const auto & existing : graph.nodes) {
-        if (point.distanceXY(existing) < min_interval) {
-          return;
-        }
-      }
-      graph.nodes.push_back(point);
-    };
-
-  add_node(current, 0.0);
-
-  const int steps = std::max(1, static_cast<int>(std::ceil(local_range_ / sample_dist_)));
-  const double min_interval = std::max(sample_dist_, 1.0);
-  for (int ix = -steps; ix <= steps; ++ix) {
-    for (int iy = -steps; iy <= steps; ++iy) {
-      Point3 sample{
-        current.x + static_cast<double>(ix) * sample_dist_,
-        current.y + static_cast<double>(iy) * sample_dist_,
-        current.z + sensor_height_};
-      if (sample.distanceXY(current) > local_range_) {
-        continue;
-      }
-      if (!hasFreeVoxelNearHeight(sample) ||
-          isNearOccupied(sample, robot_clear_radius_) ||
-          isNearUnknown(sample, unknown_clear_radius_))
-      {
-        continue;
-      }
-      add_node(sample, min_interval);
-    }
-  }
-
-  for (const auto & candidate : candidates) {
-    add_node(candidate.point, resolution_);
-  }
-
-  graph.edges.resize(graph.nodes.size());
-  const double grid_size = std::max(resolution_, road_graph_dist_);
-  std::unordered_map<GridCell, std::vector<std::size_t>, GridCellHash> node_grid;
-  node_grid.reserve(graph.nodes.size());
-  for (std::size_t i = 0; i < graph.nodes.size(); ++i) {
-    node_grid[toGridCell(graph.nodes[i], grid_size)].push_back(i);
-  }
-
-  for (std::size_t i = 0; i < graph.nodes.size(); ++i) {
-    std::vector<std::pair<double, std::size_t>> neighbors;
-    const auto nearby_nodes =
-      radiusCandidates(node_grid, graph.nodes[i], road_graph_dist_, grid_size);
-    for (const auto j : nearby_nodes) {
-      if (j <= i) {
-        continue;
-      }
-      const double dist = graph.nodes[i].distanceXY(graph.nodes[j]);
-      if (dist > road_graph_dist_) {
-        continue;
-      }
-      if (!isViewpointConnectionFree(graph.nodes[i], graph.nodes[j])) {
-        continue;
-      }
-      neighbors.emplace_back(dist, j);
-    }
-    std::sort(neighbors.begin(), neighbors.end());
-
-    int connected = 0;
-    for (const auto & neighbor : neighbors) {
-      const auto j = neighbor.second;
-      graph.edges[i].push_back(j);
-      graph.edges[j].push_back(i);
-      ++connected;
-      if (road_graph_connectable_num_ > 0 && connected >= road_graph_connectable_num_) {
-        break;
-      }
-    }
-  }
-
-  return graph;
 }
 
 std::vector<Candidate> FaelFrontierCore::selectCandidates(
@@ -1072,6 +1667,7 @@ std::vector<Candidate> FaelFrontierCore::selectCandidates(
   if (duplicate_visit == map_state_->visited_positions.end()) {
     map_state_->visited_positions.push_back(current);
   }
+  updateTopologyMap(current, true);
   const bool can_reuse_by_map_revision =
     map_state_->has_cached_candidates &&
     map_state_->candidates_map_revision == map_state_->map_revision;
@@ -1115,31 +1711,26 @@ std::vector<Candidate> FaelFrontierCore::selectCandidates(
   const auto viewpoints_done = std::chrono::steady_clock::now();
   auto candidates = attachFrontiers(viewpoints, attach_frontiers, current);
   const auto attach_done = std::chrono::steady_clock::now();
-  auto road_graph = buildRoadGraph(current, candidates);
-  const auto graph_done = std::chrono::steady_clock::now();
   map_state_->candidates = candidates;
   map_state_->candidates_stamp = clock_->now();
   map_state_->candidates_owner = name_;
   map_state_->candidates_origin = current;
   map_state_->candidates_map_revision = map_state_->map_revision;
   map_state_->has_cached_candidates = true;
-  map_state_->road_graph = road_graph;
 
   RCLCPP_INFO(
     logger_,
     "[%s] candidate refresh timing ms: frontier=%.2f get_frontiers=%.2f compact=%.2f viewpoints=%.2f "
-    "attach=%.2f road_graph=%.2f total=%.2f counts{frontiers=%zu viewpoints=%zu candidates=%zu "
-    "attach_frontiers=%zu road_nodes=%zu} road_graph_collision_check=true",
+    "attach=%.2f total=%.2f counts{frontiers=%zu viewpoints=%zu candidates=%zu "
+    "attach_frontiers=%zu}",
     name_.c_str(),
     std::chrono::duration<double, std::milli>(frontier_done - frontier_start).count(),
     std::chrono::duration<double, std::milli>(get_frontiers_done - frontier_done).count(),
     std::chrono::duration<double, std::milli>(compact_done - get_frontiers_done).count(),
     std::chrono::duration<double, std::milli>(viewpoints_done - compact_done).count(),
     std::chrono::duration<double, std::milli>(attach_done - viewpoints_done).count(),
-    std::chrono::duration<double, std::milli>(graph_done - attach_done).count(),
-    std::chrono::duration<double, std::milli>(graph_done - total_start).count(),
-    frontiers.size(), viewpoints.size(), candidates.size(), attach_frontiers.size(),
-    road_graph.nodes.size());
+    std::chrono::duration<double, std::milli>(attach_done - total_start).count(),
+    frontiers.size(), viewpoints.size(), candidates.size(), attach_frontiers.size());
 
   if (candidates.empty()) {
     publishCandidates(candidates, nullptr);
@@ -1214,38 +1805,72 @@ nav_msgs::msg::Path FaelFrontierCore::makeCandidatePath(
 
 nav_msgs::msg::Path FaelFrontierCore::makeAStarPath(
   const geometry_msgs::msg::PoseStamped & start,
-  const Candidate & candidate) const
+  const Candidate & candidate)
 {
-  std::lock_guard<std::mutex> lock(map_state_->mutex);
+  const auto started = std::chrono::steady_clock::now();
   nav_msgs::msg::Path path;
   path.header = start.header;
   path.header.frame_id = frame_id_;
-  const Point3 start_point{start.pose.position.x, start.pose.position.y, start.pose.position.z};
-  const double navigation_z = start.pose.position.z;
-  const double interpolation_step = std::max(resolution_, 0.2);
-  auto points = shortestPathRoadGraph(start_point, candidate, map_state_->road_graph);
-  for (std::size_t i = 0; i < points.size(); ++i) {
-    Point3 point = points[i];
-    point.z = navigation_z;
-    if (i == 0 || path.poses.empty()) {
-      path.poses.push_back(makePose(point, path.header));
-      continue;
-    }
 
-    const auto & previous_pose = path.poses.back().pose.position;
-    const Point3 previous{previous_pose.x, previous_pose.y, navigation_z};
-    const double segment_length = previous.distanceXY(point);
-    const int steps = std::max(1, static_cast<int>(std::ceil(segment_length / interpolation_step)));
+  std::lock_guard<std::mutex> lock(map_state_->mutex);
+  const auto lock_acquired = std::chrono::steady_clock::now();
+  const Point3 start_point{start.pose.position.x, start.pose.position.y, start.pose.position.z};
+  Point3 target = candidate.point;
+  target.z = start.pose.position.z;
+  const bool topology_updated = updateTopologyMap(start_point, true);
+  const auto topology_done = std::chrono::steady_clock::now();
+
+  Point3 graph_start = start_point;
+  Point3 graph_target = target;
+  graph_start.z = map_state_->topology_plane_z;
+  graph_target.z = map_state_->topology_plane_z;
+  const auto topology_path = searchTopologyPath(graph_start, graph_target);
+  const auto search_done = std::chrono::steady_clock::now();
+  map_state_->last_topology_path = topology_path;
+  if (topology_path.empty()) {
+    RCLCPP_WARN(
+      logger_,
+      "[%s] makeAStarPath failed: topology_updated=%s phases_ms{lock_wait=%.2f "
+      "topology_update=%.2f graph_search=%.2f total=%.2f}",
+      name_.c_str(), topology_updated ? "true" : "false",
+      std::chrono::duration<double, std::milli>(lock_acquired - started).count(),
+      std::chrono::duration<double, std::milli>(topology_done - lock_acquired).count(),
+      std::chrono::duration<double, std::milli>(search_done - topology_done).count(),
+      std::chrono::duration<double, std::milli>(search_done - started).count());
+    return path;
+  }
+
+  const double interpolation_step = std::max(resolution_, 0.2);
+  path.poses.push_back(makePose(start_point, path.header));
+  for (std::size_t segment = 1; segment < topology_path.size(); ++segment) {
+    const auto & from = topology_path[segment - 1];
+    const auto & to = topology_path[segment];
+    const double segment_length = from.distanceXY(to);
+    const int steps = std::max(
+      1, static_cast<int>(std::ceil(segment_length / interpolation_step)));
     for (int step = 1; step <= steps; ++step) {
       const double ratio = static_cast<double>(step) / static_cast<double>(steps);
       Point3 interpolated{
-        previous.x + (point.x - previous.x) * ratio,
-        previous.y + (point.y - previous.y) * ratio,
-        navigation_z};
+        from.x + (to.x - from.x) * ratio,
+        from.y + (to.y - from.y) * ratio,
+        start_point.z};
       path.poses.push_back(makePose(interpolated, path.header));
     }
   }
+
   updatePathOrientations(path);
+  const auto finished = std::chrono::steady_clock::now();
+  RCLCPP_INFO(
+    logger_,
+    "[%s] makeAStarPath success: topology_updated=%s topology_waypoints=%zu path_poses=%zu "
+    "phases_ms{lock_wait=%.2f topology_update=%.2f graph_search=%.2f interpolate=%.2f "
+    "total=%.2f}",
+    name_.c_str(), topology_updated ? "true" : "false", topology_path.size(), path.poses.size(),
+    std::chrono::duration<double, std::milli>(lock_acquired - started).count(),
+    std::chrono::duration<double, std::milli>(topology_done - lock_acquired).count(),
+    std::chrono::duration<double, std::milli>(search_done - topology_done).count(),
+    std::chrono::duration<double, std::milli>(finished - search_done).count(),
+    std::chrono::duration<double, std::milli>(finished - started).count());
   return path;
 }
 
@@ -1264,106 +1889,6 @@ void FaelFrontierCore::publishSelection(
     header.frame_id = frame_id_;
     safePublish(selected_candidate_pub_, makePose(selected.point, header), logger_, "selected_candidate");
   }
-}
-
-std::vector<Point3> FaelFrontierCore::shortestPathRoadGraph(
-  const Point3 & start,
-  const Candidate & goal,
-  const RoadGraph & graph) const
-{
-  if (graph.nodes.empty()) {
-    return {};
-  }
-
-  auto nearest_node = [&](const Point3 & point) {
-      std::size_t best_index = 0;
-      double best_distance = std::numeric_limits<double>::infinity();
-      for (std::size_t i = 0; i < graph.nodes.size(); ++i) {
-        const double distance = graph.nodes[i].distanceXY(point);
-        if (distance < best_distance) {
-          best_distance = distance;
-          best_index = i;
-        }
-      }
-      return best_index;
-    };
-
-  const auto start_index = nearest_node(start);
-  const auto goal_index = nearest_node(goal.point);
-  RCLCPP_DEBUG(
-    logger_,
-    "[%s] topology path snap: start_node=%zu dist=%.2f goal_node=%zu dist=%.2f graph_nodes=%zu",
-    name_.c_str(), start_index, graph.nodes[start_index].distanceXY(start),
-    goal_index, graph.nodes[goal_index].distanceXY(goal.point), graph.nodes.size());
-
-  struct Node
-  {
-    std::size_t index;
-    double f;
-    double g;
-    bool operator<(const Node & other) const {return f > other.f;}
-  };
-
-  std::priority_queue<Node> open;
-  std::vector<double> g_score(graph.nodes.size(), std::numeric_limits<double>::infinity());
-  std::vector<std::size_t> parent(graph.nodes.size(), graph.nodes.size());
-  g_score[start_index] = 0.0;
-  open.push(Node{start_index, graph.nodes[start_index].distanceXY(graph.nodes[goal_index]), 0.0});
-
-  while (!open.empty()) {
-    const auto current = open.top();
-    open.pop();
-    if (current.index == goal_index) {
-      std::vector<Point3> path;
-      for (std::size_t idx = goal_index; idx != graph.nodes.size(); idx = parent[idx]) {
-        path.push_back(graph.nodes[idx]);
-        if (idx == start_index) {
-          break;
-        }
-      }
-      std::reverse(path.begin(), path.end());
-      if (path.empty() || path.front().distanceXY(start) > resolution_) {
-        path.insert(path.begin(), start);
-      } else {
-        path.front() = start;
-      }
-      if (path.empty() || path.back().distanceXY(goal.point) > resolution_) {
-        path.push_back(goal.point);
-      } else {
-        path.back() = goal.point;
-      }
-      RCLCPP_DEBUG(
-        logger_,
-        "[%s] topology path solved: poses=%zu start_node=%zu goal_node=%zu",
-        name_.c_str(), path.size(), start_index, goal_index);
-      return path;
-    }
-
-    if (current.g > g_score[current.index]) {
-      continue;
-    }
-
-    if (current.index >= graph.edges.size()) {
-      continue;
-    }
-
-    for (const auto next : graph.edges[current.index]) {
-      if (next >= graph.nodes.size()) {
-        continue;
-      }
-      const double tentative = current.g + graph.nodes[current.index].distanceXY(graph.nodes[next]);
-      if (tentative < g_score[next]) {
-        parent[next] = current.index;
-        g_score[next] = tentative;
-        open.push(Node{
-          next,
-          tentative + graph.nodes[next].distanceXY(graph.nodes[goal_index]),
-          tentative});
-      }
-    }
-  }
-
-  return {};
 }
 
 void FaelFrontierCore::publishCandidates(
@@ -1501,20 +2026,20 @@ void FaelFrontierCore::publishTopology(
 
   visualization_msgs::msg::Marker graph_nodes = make_marker(
     4, "fael_topology_graph_nodes", visualization_msgs::msg::Marker::POINTS);
-  graph_nodes.scale.x = 0.14;
-  graph_nodes.scale.y = 0.14;
-  graph_nodes.color.r = 1.0f;
-  graph_nodes.color.g = 0.0f;
-  graph_nodes.color.b = 0.0f;
+  graph_nodes.scale.x = 0.18;
+  graph_nodes.scale.y = 0.18;
+  graph_nodes.color.r = 0.1f;
+  graph_nodes.color.g = 0.8f;
+  graph_nodes.color.b = 1.0f;
   graph_nodes.color.a = 1.0f;
 
   visualization_msgs::msg::Marker graph_edges = make_marker(
     5, "fael_topology_graph_edges", visualization_msgs::msg::Marker::LINE_LIST);
-  graph_edges.scale.x = 0.055;
+  graph_edges.scale.x = 0.045;
   graph_edges.color.r = 0.1f;
-  graph_edges.color.g = 0.5f;
-  graph_edges.color.b = 1.0f;
-  graph_edges.color.a = 0.35f;
+  graph_edges.color.g = 0.65f;
+  graph_edges.color.b = 0.9f;
+  graph_edges.color.a = 0.65f;
 
   visualization_msgs::msg::Marker selected_marker = make_marker(
     6, "fael_selected_viewpoint", visualization_msgs::msg::Marker::SPHERE);
@@ -1538,24 +2063,6 @@ void FaelFrontierCore::publishTopology(
   best_path.color.b = 0.1f;
   best_path.color.a = 1.0f;
 
-  const auto & road_graph = map_state_->road_graph;
-  for (const auto & node : road_graph.nodes) {
-    graph_nodes.points.push_back(to_msg_point(node));
-  }
-  if (graph_nodes.points.empty()) {
-    graph_nodes.points.push_back(to_msg_point(current));
-  }
-
-  for (std::size_t i = 0; i < road_graph.edges.size() && i < road_graph.nodes.size(); ++i) {
-    for (const auto j : road_graph.edges[i]) {
-      if (j >= road_graph.nodes.size() || j < i) {
-        continue;
-      }
-      graph_edges.points.push_back(to_msg_point(road_graph.nodes[i]));
-      graph_edges.points.push_back(to_msg_point(road_graph.nodes[j]));
-    }
-  }
-
   for (const auto & candidate : candidates) {
     const auto candidate_point = to_msg_point(candidate.point);
     viewpoints.points.push_back(candidate_point);
@@ -1572,9 +2079,20 @@ void FaelFrontierCore::publishTopology(
     selected_marker.pose.position = to_msg_point(selected->point);
   }
 
-  if (publish_best_path && selected) {
-    const auto path_points = shortestPathRoadGraph(current, *selected, road_graph);
-    for (const auto & point : path_points) {
+  for (std::size_t i = 0; i < map_state_->topology_nodes.size(); ++i) {
+    graph_nodes.points.push_back(to_msg_point(map_state_->topology_nodes[i].point));
+    for (const auto neighbor : map_state_->topology_nodes[i].neighbors) {
+      if (neighbor <= i || neighbor >= map_state_->topology_nodes.size()) {
+        continue;
+      }
+      graph_edges.points.push_back(to_msg_point(map_state_->topology_nodes[i].point));
+      graph_edges.points.push_back(to_msg_point(map_state_->topology_nodes[neighbor].point));
+    }
+  }
+
+  if (publish_best_path && selected && !map_state_->last_topology_path.empty()) {
+    for (auto point : map_state_->last_topology_path) {
+      point.z = current.z;
       best_path.points.push_back(to_msg_point(point));
     }
   }

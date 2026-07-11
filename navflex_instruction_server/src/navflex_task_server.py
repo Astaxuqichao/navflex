@@ -34,12 +34,15 @@ class NavflexTaskServer(Node):
         super().__init__('navflex_task_server')
         self.declare_parameter('instruction_service', 'navflex_instruction/execute')
         self.declare_parameter('semantic_query_service', 'navflex_semantic_map/query_target')
+        self.declare_parameter('use_semantic_map', True)
         self.declare_parameter('default_execute', False)
         self.declare_parameter('high_risk_constraints', ['enter_restricted_zone', 'ignore_obstacles'])
         self.declare_parameter('action_timeout', 30.0)
 
         self.instruction_service = self.get_parameter('instruction_service').value
         self.semantic_query_service = self.get_parameter('semantic_query_service').value
+        self.use_semantic_map = self._as_bool(
+            self.get_parameter('use_semantic_map').value)
         self.default_execute = self._as_bool(
             self.get_parameter('default_execute').value)
         self.high_risk_constraints = set(self.get_parameter('high_risk_constraints').value or [])
@@ -61,7 +64,8 @@ class NavflexTaskServer(Node):
             callback_group=self.callback_group)
         self.get_logger().info(
             f"Task server ready: instruction_service='{self.instruction_service}', "
-            f"semantic_query_service='{self.semantic_query_service}'")
+            f"semantic_query_service='{self.semantic_query_service}', "
+            f"use_semantic_map={self.use_semantic_map}")
 
     def execute_task(self, request, response):
         start = self.get_clock().now()
@@ -181,8 +185,25 @@ class NavflexTaskServer(Node):
         if action in ['semantic_navigate', 'navigate_to_object_or_region', 'navigate_to_landmark']:
             target = str(task.get('target') or task.get('target_name') or '').strip()
             target_type = str(task.get('target_type') or '').strip()
+            pose = self._pose_from_task(task)
+            if pose is not None:
+                task['grounded_target'] = {
+                    'name': target or 'observed_target',
+                    'target_type': target_type,
+                    'x': pose['x'],
+                    'y': pose['y'],
+                    'yaw': pose['yaw'],
+                    'source': pose['source'],
+                }
+                steps.append(
+                    f"semantic target grounded from {pose['source']}: "
+                    f"{task['grounded_target']['name']}")
+                return f"go to {pose['x']:.3f} {pose['y']:.3f} {pose['yaw']:.6f}rad"
             if not target:
-                raise TaskError('semantic navigation task needs target')
+                raise TaskError('semantic navigation task needs target or target_pose')
+            if not self.use_semantic_map:
+                raise TaskError(
+                    'semantic map disabled: semantic navigation needs target_pose, pose, nav_goal, or x/y/yaw')
             semantic = self._query_semantic_target(target, target_type)
             if semantic is None:
                 raise TaskError(f"semantic target not found: {target}")
@@ -217,6 +238,39 @@ class NavflexTaskServer(Node):
         if result is None or not result.success:
             return None
         return result
+
+    def _pose_from_task(self, task: Dict) -> Optional[Dict]:
+        for key in ['target_pose', 'goal_pose', 'nav_goal', 'pose']:
+            parsed = self._parse_pose_dict(task.get(key), key)
+            if parsed is not None:
+                return parsed
+        return self._parse_pose_dict(task, 'x/y/yaw')
+
+    def _parse_pose_dict(self, value, source: str) -> Optional[Dict]:
+        if not isinstance(value, dict):
+            return None
+        x = value.get('x')
+        y = value.get('y')
+        yaw = value.get('yaw', value.get('theta', 0.0))
+        if x is None or y is None:
+            position = value.get('position')
+            if isinstance(position, dict):
+                x = position.get('x')
+                y = position.get('y')
+            pose = value.get('pose')
+            if isinstance(pose, dict):
+                nested = self._parse_pose_dict(pose, source)
+                if nested is not None:
+                    nested['source'] = source
+                    return nested
+        if x is None or y is None:
+            return None
+        return {
+            'x': float(x),
+            'y': float(y),
+            'yaw': float(yaw),
+            'source': source,
+        }
 
     def _call_execute_instruction(self, instruction: str):
         if not self.execute_client.wait_for_service(timeout_sec=self.action_timeout):

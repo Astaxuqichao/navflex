@@ -42,11 +42,13 @@ struct Candidate
   double score{0.0};
 };
 
-struct RoadGraph
+struct TopologyNode
 {
-  std::vector<Point3> nodes;
-  std::vector<std::vector<std::size_t>> edges;
+  Point3 point;
+  double clearance{0.0};
+  std::vector<std::size_t> neighbors;
 };
+
 
 class FaelFrontierCore
 {
@@ -80,7 +82,7 @@ public:
 
   nav_msgs::msg::Path makeAStarPath(
     const geometry_msgs::msg::PoseStamped & start,
-    const Candidate & candidate) const;
+    const Candidate & candidate);
 
   void publishSelection(
     const geometry_msgs::msg::PoseStamped & start,
@@ -109,8 +111,19 @@ public:
     Point3 candidates_origin;
     bool has_cached_candidates{false};
     std::unordered_map<ufo::map::Code, Point3, ufo::map::Code::Hash> frontiers_viewpoints;
-    RoadGraph road_graph;
     std::vector<Point3> visited_positions;
+    std::vector<TopologyNode> topology_nodes;
+    std::vector<Point3> last_topology_path;
+    rclcpp::Time topology_stamp;
+    std::uint64_t topology_map_revision{0};
+    double topology_plane_z{0.0};
+    Point3 topology_update_origin;
+    bool has_topology_update_origin{false};
+    bool initialized_from_accumulated_map{false};
+    Point3 latest_sensor_position;
+    bool has_latest_sensor_position{false};
+    bool startup_topology_published{false};
+    bool has_topology{false};
     rclcpp::Subscription<sensor_msgs::msg::PointCloud2>::SharedPtr cloud_sub;
     std::string owner_name;
   };
@@ -118,8 +131,8 @@ public:
 private:
 
   void pointCloudCallback(const sensor_msgs::msg::PointCloud2::SharedPtr msg);
+  void topologyInitializationTimerCallback();
   std::shared_ptr<SharedMapState> getSharedMapState(
-    const std::string & key,
     double resolution,
     int depth_levels);
 
@@ -131,7 +144,16 @@ private:
   bool hasFreeVoxelNearHeight(const Point3 & point) const;
   bool isFrontier(const ufo::map::Code & code) const;
   bool isCollisionFree2D(const Point3 & from, const Point3 & to) const;
+  bool isKnownFree2D(const Point3 & from, const Point3 & to) const;
+  bool isFrontierVisible(const Point3 & viewpoint, const Point3 & frontier) const;
   bool isViewpointConnectionFree(const Point3 & from, const Point3 & to) const;
+  double topologyClearance(const Point3 & point) const;
+  bool updateTopologyMap(
+    const Point3 & current,
+    bool initialize_from_accumulated_map = false);
+  std::vector<Point3> searchTopologyPath(
+    const Point3 & start,
+    const Point3 & goal) const;
   double unknownGainBeyondFrontier(const Point3 & viewpoint, const Point3 & frontier) const;
 
   void frontierSearch(const Point3 & current);
@@ -142,16 +164,10 @@ private:
     const std::vector<Point3> & frontiers,
     const Point3 & current) const;
   std::vector<Point3> sampleViewpoints(const Point3 & current) const;
-  RoadGraph buildRoadGraph(const Point3 & current, const std::vector<Candidate> & candidates) const;
   std::vector<Candidate> attachFrontiers(
     const std::vector<Point3> & viewpoints,
     const std::vector<Point3> & frontiers,
     const Point3 & current) const;
-
-  std::vector<Point3> shortestPathRoadGraph(
-    const Point3 & start,
-    const Candidate & goal,
-    const RoadGraph & graph) const;
   void publishCandidates(const std::vector<Candidate> & candidates, const Candidate * selected) const;
 
   rclcpp_lifecycle::LifecycleNode::WeakPtr node_;
@@ -164,6 +180,7 @@ private:
   rclcpp_lifecycle::LifecyclePublisher<geometry_msgs::msg::PoseStamped>::SharedPtr selected_candidate_pub_;
   rclcpp_lifecycle::LifecyclePublisher<sensor_msgs::msg::PointCloud2>::SharedPtr occupied_map_pub_;
   rclcpp_lifecycle::LifecyclePublisher<sensor_msgs::msg::PointCloud2>::SharedPtr free_map_pub_;
+  rclcpp::TimerBase::SharedPtr topology_initialization_timer_;
 
   std::shared_ptr<SharedMapState> map_state_;
 
@@ -171,8 +188,6 @@ private:
   std::string frame_id_{"map"};
   std::string point_cloud_topic_{"point_cloud"};
   std::string visualization_topic_prefix_{"frontier_exploration"};
-  bool shared_map_{true};
-  std::string shared_map_key_{"default"};
   double resolution_{0.4};
   int depth_levels_{16};
   int insert_depth_{0};
@@ -190,8 +205,7 @@ private:
   double candidate_recompute_period_{1.0};
   double frontier_attach_grid_size_{0.4};
   int global_frontier_revalidate_max_cells_{5000};
-  double road_graph_dist_{3.0};
-  int road_graph_connectable_num_{3};
+  int frontier_visibility_max_viewpoints_{8};
   double viewpoint_gain_threshold_{2.0};
   double min_frontier_area_{0.05};
   double candidate_separation_{1.0};
@@ -216,6 +230,22 @@ private:
   double sensor_height_{0.45};
   double frontier_slope_deg_{89.0};
   double viewpoint_slope_deg_{15.0};
+  bool topology_enabled_{true};
+  double topology_initialization_period_{0.5};
+  double topology_update_distance_{1.0};
+  double topology_update_radius_{6.0};
+  double topology_node_spacing_{1.2};
+  double topology_local_node_spacing_{0.6};
+  double topology_min_clearance_{0.35};
+  double topology_local_min_clearance_{0.2};
+  double topology_max_clearance_{2.4};
+  double topology_connection_radius_{2.5};
+  double topology_attach_radius_{5.0};
+  double topology_z_tolerance_{0.6};
+  int topology_initial_min_nodes_{8};
+  int topology_max_samples_{6000};
+  int topology_max_nodes_{1200};
+  int topology_max_neighbors_{4};
   rclcpp::Time last_map_publish_time_;
 
   void publishMapClouds();
