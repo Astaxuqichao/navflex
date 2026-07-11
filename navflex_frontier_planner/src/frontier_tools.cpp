@@ -1079,7 +1079,35 @@ std::vector<Point3> FaelFrontierCore::searchTopologyPath(
   }
   const auto adjacency_done = std::chrono::steady_clock::now();
 
-  auto attach_virtual_node = [&](std::size_t index, const Point3 & point) {
+  auto is_start_connection_free = [&](const Point3 & from, const Point3 & to) {
+      const double distance = from.distanceXY(to);
+      const double step_size = std::max(resolution_ * 0.5, 0.1);
+      const int steps = std::max(1, static_cast<int>(std::ceil(distance / step_size)));
+      const double plane_z = map_state_->topology_plane_z;
+      for (int i = 0; i <= steps; ++i) {
+        const double t = static_cast<double>(i) / static_cast<double>(steps);
+        Point3 sample{
+          from.x + (to.x - from.x) * t,
+          from.y + (to.y - from.y) * t,
+          plane_z};
+        if (isNearOccupied(sample, robot_clear_radius_)) {
+          return false;
+        }
+        // The first cloud may not have marked the robot footprint free yet. Allow that
+        // short unknown prefix while keeping the rest of the attachment in known space.
+        if (sample.distanceXY(from) > robot_clear_radius_ &&
+          !map_state_->map->isFree(toUfoPoint(sample), insert_depth_))
+        {
+          return false;
+        }
+      }
+      return true;
+    };
+
+  auto attach_virtual_node = [&] (
+    std::size_t index, const Point3 & point, bool is_start,
+    std::size_t & nearby_count, std::size_t & blocked_count)
+    {
       std::vector<std::pair<double, std::size_t>> candidates;
       for (std::size_t i = 0; i < nodes.size(); ++i) {
         const double distance = point.distanceXY(nodes[i].point);
@@ -1088,12 +1116,17 @@ std::vector<Point3> FaelFrontierCore::searchTopologyPath(
         }
       }
       std::sort(candidates.begin(), candidates.end());
+      nearby_count = candidates.size();
       int attached = 0;
       for (const auto & candidate : candidates) {
         if (attached >= std::max(1, topology_max_neighbors_)) {
           break;
         }
-        if (!isKnownFree2D(point, nodes[candidate.second].point)) {
+        const bool connection_free = is_start ?
+          is_start_connection_free(point, nodes[candidate.second].point) :
+          isKnownFree2D(point, nodes[candidate.second].point);
+        if (!connection_free) {
+          ++blocked_count;
           continue;
         }
         adjacency[index].emplace_back(candidate.second, candidate.first);
@@ -1101,9 +1134,15 @@ std::vector<Point3> FaelFrontierCore::searchTopologyPath(
         ++attached;
       }
     };
-  attach_virtual_node(start_index, start);
-  attach_virtual_node(goal_index, goal);
-  if (start.distanceXY(goal) <= topology_attach_radius_ && isKnownFree2D(start, goal)) {
+  std::size_t start_nearby = 0;
+  std::size_t start_blocked = 0;
+  std::size_t goal_nearby = 0;
+  std::size_t goal_blocked = 0;
+  attach_virtual_node(start_index, start, true, start_nearby, start_blocked);
+  attach_virtual_node(goal_index, goal, false, goal_nearby, goal_blocked);
+  if (start.distanceXY(goal) <= topology_attach_radius_ &&
+    is_start_connection_free(start, goal))
+  {
     const double distance = start.distanceXY(goal);
     adjacency[start_index].emplace_back(goal_index, distance);
     adjacency[goal_index].emplace_back(start_index, distance);
@@ -1113,8 +1152,10 @@ std::vector<Point3> FaelFrontierCore::searchTopologyPath(
     RCLCPP_WARN(
       logger_,
       "[%s] topology A* attachment failed: nodes=%zu start_edges=%zu goal_edges=%zu "
+      "start_nearby=%zu start_blocked=%zu goal_nearby=%zu goal_blocked=%zu "
       "phases_ms{adjacency=%.2f attach=%.2f total=%.2f}",
       name_.c_str(), nodes.size(), adjacency[start_index].size(), adjacency[goal_index].size(),
+      start_nearby, start_blocked, goal_nearby, goal_blocked,
       std::chrono::duration<double, std::milli>(adjacency_done - started).count(),
       std::chrono::duration<double, std::milli>(attachment_done - adjacency_done).count(),
       std::chrono::duration<double, std::milli>(attachment_done - started).count());

@@ -74,33 +74,42 @@ uint32_t FrontierAStarPlanner::makePlan(
       "free/unknown boundary voxels have been observed.";
     return Result::NO_PATH_FOUND;
   }
-  const std::size_t selected_index = 0;
-  plan = core_.makeAStarPath(start, candidates[selected_index]);
+  std::size_t selected_index = candidates.size();
+  for (std::size_t i = 0; i < candidates.size(); ++i) {
+    plan = core_.makeAStarPath(start, candidates[i]);
+    if (!plan.poses.empty()) {
+      selected_index = i;
+      break;
+    }
+  }
   const auto path_done = std::chrono::steady_clock::now();
   if (plan.poses.empty()) {
     RCLCPP_WARN(
       rclcpp::get_logger("FrontierAStarPlanner"),
-      "FrontierAStar planning failed after %.2fms: phases_ms{candidates=%.2f path=%.2f}",
+      "FrontierAStar planning failed after trying %zu candidates in %.2fms: "
+      "phases_ms{candidates=%.2f path=%.2f}",
+      candidates.size(),
       std::chrono::duration<double, std::milli>(path_done - started).count(),
       std::chrono::duration<double, std::milli>(candidates_done - started).count(),
       std::chrono::duration<double, std::milli>(path_done - candidates_done).count());
     message =
-      "The best frontier candidate cannot be connected through the accumulated point-cloud "
-      "topology map. Check start_edges and goal_edges in the topology A* logs.";
+      "None of the frontier candidates can be connected through the accumulated point-cloud "
+      "topology map. Check graph component and attachment details in the topology A* logs.";
     return Result::NO_PATH_FOUND;
   }
 
   std::ostringstream oss;
-  oss << "Selected best frontier candidate 1/" << candidates.size()
+  oss << "Selected reachable frontier candidate " << (selected_index + 1) << "/" << candidates.size()
       << " and generated an A* path on the accumulated point-cloud topology map";
   message = oss.str();
   core_.publishSelection(start, candidates, candidates[selected_index]);
   const auto finished = std::chrono::steady_clock::now();
   RCLCPP_INFO(
     rclcpp::get_logger("FrontierAStarPlanner"),
-    "FrontierAStar planning success: candidates=%zu path_poses=%zu total=%.2fms "
+    "FrontierAStar planning success: selected=%zu/%zu skipped_unreachable=%zu "
+    "path_poses=%zu total=%.2fms "
     "phases_ms{candidates=%.2f path=%.2f publish=%.2f}",
-    candidates.size(), plan.poses.size(),
+    selected_index + 1, candidates.size(), selected_index, plan.poses.size(),
     std::chrono::duration<double, std::milli>(finished - started).count(),
     std::chrono::duration<double, std::milli>(candidates_done - started).count(),
     std::chrono::duration<double, std::milli>(path_done - candidates_done).count(),
