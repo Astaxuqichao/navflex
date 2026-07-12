@@ -1,15 +1,17 @@
 #include "navflex_base/behavior_execution.h"
 #include "nav2_msgs/action/dummy_behavior.hpp"
 
-namespace navflex_costmap_nav {
+namespace navflex_costmap_nav
+{
 
 BehaviorExecution::BehaviorExecution(
-    const std::string& name,
-    nav2_core::Behavior::Ptr behavior,
-    const navflex_utility::RobotInformation::ConstPtr& robot_info,
-    const rclcpp_lifecycle::LifecycleNode::SharedPtr& node)
-    : NavflexExecutionBase(name, robot_info, node),
-      behavior_(behavior) {
+  const std::string & name,
+  nav2_core::Behavior::Ptr behavior,
+  const navflex_utility::RobotInformation::ConstPtr & robot_info,
+  const rclcpp_lifecycle::LifecycleNode::SharedPtr & node)
+: NavflexExecutionBase(name, robot_info, node),
+  behavior_(behavior)
+{
   // Read patience parameter if available
   double patience_sec = 15.0;
   if (!node->has_parameter("recovery_patience")) {
@@ -19,7 +21,8 @@ BehaviorExecution::BehaviorExecution(
   patience_ = rclcpp::Duration::from_seconds(patience_sec);
 }
 
-bool BehaviorExecution::cancel() {
+bool BehaviorExecution::cancel()
+{
   cancel_ = true;
   if (behavior_) {
     behavior_->stop();
@@ -27,24 +30,28 @@ bool BehaviorExecution::cancel() {
   return true;
 }
 
-bool BehaviorExecution::isPatienceExceeded() const {
+bool BehaviorExecution::isPatienceExceeded() const
+{
   std::lock_guard<std::mutex> tl(time_mtx_);
   return !(patience_ == rclcpp::Duration(0, 0)) &&
          (node_->now() - start_time_ > patience_);
 }
 
-BehaviorExecution::BehaviorState BehaviorExecution::getState() const {
+BehaviorExecution::BehaviorState BehaviorExecution::getState() const
+{
   std::lock_guard<std::mutex> lock(state_mtx_);
   return state_;
 }
 
-void BehaviorExecution::setState(BehaviorState s) {
+void BehaviorExecution::setState(BehaviorState s)
+{
   std::lock_guard<std::mutex> lock(state_mtx_);
   state_ = s;
   condition_.notify_all();
 }
 
-void BehaviorExecution::run() {
+void BehaviorExecution::run()
+{
   cancel_ = false;
 
   {
@@ -56,8 +63,8 @@ void BehaviorExecution::run() {
 
   if (should_exit_) {
     setOutcomeAndMessage(
-        nav2_msgs::action::DummyBehavior::Result::STOPPED,
-        "Behavior execution stopped before start");
+      nav2_msgs::action::DummyBehavior::Result::STOPPED,
+      "Behavior execution stopped before start");
     setState(STOPPED);
     return;
   }
@@ -67,8 +74,8 @@ void BehaviorExecution::run() {
   try {
     if (!behavior_) {
       setOutcomeAndMessage(
-          nav2_msgs::action::DummyBehavior::Result::INTERNAL_ERROR,
-          "Behavior plugin is null");
+        nav2_msgs::action::DummyBehavior::Result::INTERNAL_ERROR,
+        "Behavior plugin is null");
       setState(INTERNAL_ERROR);
       return;
     }
@@ -78,16 +85,16 @@ void BehaviorExecution::run() {
     std::string cmd = getMessage();
     setOutcome(behavior_->runBehavior(cmd));
     setMessage(cmd);
-  } catch (const std::exception& e) {
+  } catch (const std::exception & e) {
     setOutcomeAndMessage(
-        nav2_msgs::action::DummyBehavior::Result::INTERNAL_ERROR,
-        std::string("Exception in runBehavior: ") + e.what());
+      nav2_msgs::action::DummyBehavior::Result::INTERNAL_ERROR,
+      std::string("Exception in runBehavior: ") + e.what());
     setState(INTERNAL_ERROR);
     return;
   } catch (...) {
     setOutcomeAndMessage(
-        nav2_msgs::action::DummyBehavior::Result::INTERNAL_ERROR,
-        "Unknown exception in runBehavior");
+      nav2_msgs::action::DummyBehavior::Result::INTERNAL_ERROR,
+      "Unknown exception in runBehavior");
     setState(INTERNAL_ERROR);
     return;
   }

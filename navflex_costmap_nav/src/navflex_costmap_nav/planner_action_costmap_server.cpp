@@ -28,28 +28,31 @@ using rcl_interfaces::msg::ParameterType;
 using std::placeholders::_1;
 using std::placeholders::_2;
 
-namespace navflex_costmap_nav {
+namespace navflex_costmap_nav
+{
 
 PlannerCostmapServer::PlannerCostmapServer(
-    std::shared_ptr<nav2_costmap_2d::Costmap2DROS> costmap_ros,
-    const navflex_utility::RobotInformation::ConstPtr& robot_info,
-    const rclcpp::NodeOptions& options)
-    : nav2_util::LifecycleNode(
-          "navflex_planner_server", "",
-          rclcpp::NodeOptions().arguments(
-              {"--ros-args", "-r",
-               std::string("navflex_planner_server") + ":" +
-                   std::string("__node:=") +
-                   std::string("navflex_planner_server")})),
-      name_action_get_path_("compute_path_to_pose"),
-      gp_loader_("nav2_core", "nav2_core::GlobalPlanner"),
-      default_ids_{"GridBased"},
-      default_types_{"nav2_navfn_planner/NavfnPlanner"},
-      costmap_(nullptr),
-      costmap_ros_(costmap_ros),
-      robot_info_(robot_info) {
-  RCLCPP_INFO(get_logger(), "[PlannerServer] created action_server=%s",
-              name_action_get_path_.c_str());
+  std::shared_ptr<nav2_costmap_2d::Costmap2DROS> costmap_ros,
+  const navflex_utility::RobotInformation::ConstPtr & robot_info,
+  const rclcpp::NodeOptions & options)
+: nav2_util::LifecycleNode(
+    "navflex_planner_server", "",
+    rclcpp::NodeOptions().arguments(
+      {"--ros-args", "-r",
+        std::string("navflex_planner_server") + ":" +
+        std::string("__node:=") +
+        std::string("navflex_planner_server")})),
+  name_action_get_path_("compute_path_to_pose"),
+  gp_loader_("nav2_core", "nav2_core::GlobalPlanner"),
+  default_ids_{"GridBased"},
+  default_types_{"nav2_navfn_planner/NavfnPlanner"},
+  costmap_(nullptr),
+  costmap_ros_(costmap_ros),
+  robot_info_(robot_info)
+{
+  RCLCPP_INFO(
+    get_logger(), "[PlannerServer] created action_server=%s",
+    name_action_get_path_.c_str());
 
   // Declare this node's parameters
   declare_parameter("planner_plugins", default_ids_);
@@ -63,7 +66,8 @@ PlannerCostmapServer::PlannerCostmapServer(
   }
 }
 
-PlannerCostmapServer::~PlannerCostmapServer() {
+PlannerCostmapServer::~PlannerCostmapServer()
+{
   /*
    * Backstop ensuring this state is destroyed, even if deactivate/cleanup are
    * never called.
@@ -113,13 +117,15 @@ PlannerCostmapServer::~PlannerCostmapServer() {
  * - Action server callbacks are bound to PlannerCostmapServer methods
  */
 nav2_util::CallbackReturn PlannerCostmapServer::on_configure(
-    const rclcpp_lifecycle::State& /*state*/) {
+  const rclcpp_lifecycle::State & /*state*/)
+{
   RCLCPP_INFO(get_logger(), "[PlannerServer] configuring");
 
   costmap_ = costmap_ros_->getCostmap();
 
-  RCLCPP_DEBUG(get_logger(), "Costmap size: %d,%d", costmap_->getSizeInCellsX(),
-               costmap_->getSizeInCellsY());
+  RCLCPP_DEBUG(
+    get_logger(), "Costmap size: %d,%d", costmap_->getSizeInCellsX(),
+    costmap_->getSizeInCellsY());
 
   tf_ = costmap_ros_->getTfBuffer();
 
@@ -131,16 +137,18 @@ nav2_util::CallbackReturn PlannerCostmapServer::on_configure(
   for (size_t i = 0; i != planner_ids_.size(); i++) {
     try {
       planner_types_[i] =
-          nav2_util::get_plugin_type_param(node, planner_ids_[i]);
+        nav2_util::get_plugin_type_param(node, planner_ids_[i]);
       nav2_core::GlobalPlanner::Ptr planner =
-          gp_loader_.createUniqueInstance(planner_types_[i]);
-      RCLCPP_INFO(get_logger(), "[PlannerServer] loaded planner id=%s type=%s",
-                  planner_ids_[i].c_str(), planner_types_[i].c_str());
+        gp_loader_.createUniqueInstance(planner_types_[i]);
+      RCLCPP_INFO(
+        get_logger(), "[PlannerServer] loaded planner id=%s type=%s",
+        planner_ids_[i].c_str(), planner_types_[i].c_str());
       planner->configure(node, planner_ids_[i], tf_, costmap_ros_);
       planners_.insert({planner_ids_[i], planner});
-    } catch (const pluginlib::PluginlibException& ex) {
-      RCLCPP_FATAL(get_logger(),
-                   "Failed to create global planner. Exception: %s", ex.what());
+    } catch (const pluginlib::PluginlibException & ex) {
+      RCLCPP_FATAL(
+        get_logger(),
+        "Failed to create global planner. Exception: %s", ex.what());
       // return nav2_util::CallbackReturn::FAILURE;
     }
   }
@@ -149,37 +157,42 @@ nav2_util::CallbackReturn PlannerCostmapServer::on_configure(
     planner_ids_concat_ += planner_ids_[i] + std::string(" ");
   }
 
-  RCLCPP_INFO(get_logger(), "[PlannerServer] ready planners=[%s]",
-              planner_ids_concat_.c_str());
+  RCLCPP_INFO(
+    get_logger(), "[PlannerServer] ready planners=[%s]",
+    planner_ids_concat_.c_str());
 
   planner_action_ =
-      std::make_shared<PlannerAction>(node, name_action_get_path_, robot_info_);
+    std::make_shared<PlannerAction>(node, name_action_get_path_, robot_info_);
 
   // Dedicated executor (false = not auto-added to node executor) mirroring
   // SimpleActionServer spin_thread=true. Reentrant + two threads keeps the
   // goal response/cancel callbacks responsive while an accepted goal is being
   // handed off to the planner execution thread.
   action_cb_group_ = node->get_node_base_interface()->create_callback_group(
-      rclcpp::CallbackGroupType::Reentrant, false);
+    rclcpp::CallbackGroupType::Reentrant, false);
   action_executor_ =
-      std::make_shared<rclcpp::executors::MultiThreadedExecutor>(
-          rclcpp::ExecutorOptions(), 2);
+    std::make_shared<rclcpp::executors::MultiThreadedExecutor>(
+    rclcpp::ExecutorOptions(), 2);
   action_executor_->add_callback_group(action_cb_group_, node->get_node_base_interface());
   action_executor_thread_ =
-      std::make_unique<std::thread>([executor = action_executor_]() {
-        executor->spin();
-      });
+    std::make_unique<std::thread>(
+    [executor = action_executor_]() {
+      executor->spin();
+    });
 
   action_server_get_path_ptr_ = rclcpp_action::create_server<ActionToPose>(
-      node, name_action_get_path_,
-      std::bind(&navflex_costmap_nav::PlannerCostmapServer::handleGoalGetPath, this,
-                _1, _2),
-      std::bind(&navflex_costmap_nav::PlannerCostmapServer::cancelActionGetPath, this,
-                _1),
-      std::bind(&navflex_costmap_nav::PlannerCostmapServer::callActionGetPath, this,
-                _1),
-      rcl_action_server_get_default_options(),
-      action_cb_group_);
+    node, name_action_get_path_,
+    std::bind(
+      &navflex_costmap_nav::PlannerCostmapServer::handleGoalGetPath, this,
+      _1, _2),
+    std::bind(
+      &navflex_costmap_nav::PlannerCostmapServer::cancelActionGetPath, this,
+      _1),
+    std::bind(
+      &navflex_costmap_nav::PlannerCostmapServer::callActionGetPath, this,
+      _1),
+    rcl_action_server_get_default_options(),
+    action_cb_group_);
 
   return nav2_util::CallbackReturn::SUCCESS;
 }
@@ -221,9 +234,11 @@ nav2_util::CallbackReturn PlannerCostmapServer::on_configure(
  * - Publishers/subscriptions only active when parent ROS node is active
  */
 nav2_util::CallbackReturn PlannerCostmapServer::on_activate(
-    const rclcpp_lifecycle::State& /*state*/) {
-  RCLCPP_INFO(get_logger(), "[PlannerServer] activating planners=[%s]",
-              planner_ids_concat_.c_str());
+  const rclcpp_lifecycle::State & /*state*/)
+{
+  RCLCPP_INFO(
+    get_logger(), "[PlannerServer] activating planners=[%s]",
+    planner_ids_concat_.c_str());
 
   PlannerMap::iterator it;
   for (it = planners_.begin(); it != planners_.end(); ++it) {
@@ -274,7 +289,8 @@ nav2_util::CallbackReturn PlannerCostmapServer::on_activate(
  * - Action servers stop accepting new requests immediately
  */
 nav2_util::CallbackReturn PlannerCostmapServer::on_deactivate(
-    const rclcpp_lifecycle::State& /*state*/) {
+  const rclcpp_lifecycle::State & /*state*/)
+{
   RCLCPP_INFO(get_logger(), "Deactivating Planner server");
   /*
    * The costmap is also a lifecycle node, so it may have already fired
@@ -327,7 +343,8 @@ nav2_util::CallbackReturn PlannerCostmapServer::on_deactivate(
  * - Reset order ensures no lingering references between components
  */
 nav2_util::CallbackReturn PlannerCostmapServer::on_cleanup(
-    const rclcpp_lifecycle::State& /*state*/) {
+  const rclcpp_lifecycle::State & /*state*/)
+{
   RCLCPP_INFO(get_logger(), "Cleaning up Planner server");
 
   // Break the circular reference: rclcpp_action server holds
@@ -374,7 +391,8 @@ nav2_util::CallbackReturn PlannerCostmapServer::on_cleanup(
  * @return SUCCESS after shutdown
  */
 nav2_util::CallbackReturn PlannerCostmapServer::on_shutdown(
-    const rclcpp_lifecycle::State&) {
+  const rclcpp_lifecycle::State &)
+{
   RCLCPP_INFO(get_logger(), "Shutting down Planner server");
   return nav2_util::CallbackReturn::SUCCESS;
 }
@@ -398,16 +416,17 @@ nav2_util::CallbackReturn PlannerCostmapServer::on_shutdown(
  * @return ACCEPT_AND_EXECUTE to process goal
  */
 rclcpp_action::GoalResponse PlannerCostmapServer::handleGoalGetPath(
-    [[maybe_unused]] const rclcpp_action::GoalUUID& uuid,
-    ActionToPose::Goal::ConstSharedPtr goal) {
+  [[maybe_unused]] const rclcpp_action::GoalUUID & uuid,
+  ActionToPose::Goal::ConstSharedPtr goal)
+{
   const auto now = this->now();
   RCLCPP_INFO(
-      get_logger(),
-      "[PlannerServer] handle_goal enter t=%ld.%09ld planner_id=%s use_start=%s",
-      static_cast<long>(now.seconds()),
-      static_cast<long>(now.nanoseconds() % 1000000000),
-      goal ? goal->planner_id.c_str() : "<null>",
-      goal && goal->use_start ? "true" : "false");
+    get_logger(),
+    "[PlannerServer] handle_goal enter t=%ld.%09ld planner_id=%s use_start=%s",
+    static_cast<long>(now.seconds()),
+    static_cast<long>(now.nanoseconds() % 1000000000),
+    goal ? goal->planner_id.c_str() : "<null>",
+    goal && goal->use_start ? "true" : "false");
   return rclcpp_action::GoalResponse::ACCEPT_AND_EXECUTE;  // accept all goal
 }
 
@@ -451,23 +470,25 @@ rclcpp_action::GoalResponse PlannerCostmapServer::handleGoalGetPath(
  * - Planner ptr null check prevents crashes from invalid plugin pointers
    * - Empty planner_id selection follows planner_plugins configuration order
  */
-void PlannerCostmapServer::callActionGetPath(ServerGoalHandleGetPathPtr goal_handle) {
+void PlannerCostmapServer::callActionGetPath(ServerGoalHandleGetPathPtr goal_handle)
+{
   const auto execute_enter_time = this->now();
   const auto execute_enter_steady = std::chrono::steady_clock::now();
   RCLCPP_INFO(
-      get_logger(),
-      "[PlannerServer] execute_callback enter t=%ld.%09ld",
-      static_cast<long>(execute_enter_time.seconds()),
-      static_cast<long>(execute_enter_time.nanoseconds() % 1000000000));
+    get_logger(),
+    "[PlannerServer] execute_callback enter t=%ld.%09ld",
+    static_cast<long>(execute_enter_time.seconds()),
+    static_cast<long>(execute_enter_time.nanoseconds() % 1000000000));
 
-  const ActionToPose::Goal& goal = *goal_handle->get_goal();
+  const ActionToPose::Goal & goal = *goal_handle->get_goal();
   ActionToPose::Result::SharedPtr result =
-      std::make_shared<ActionToPose::Result>();
+    std::make_shared<ActionToPose::Result>();
   // If no planner plugins were loaded, this indicates a system initialization
   // failure. Abort the action since planning cannot proceed.
   if (planners_.empty()) {
-    RCLCPP_FATAL_STREAM(rclcpp::get_logger(name_action_get_path_),
-                        "Internal Error: No plugin loaded");
+    RCLCPP_FATAL_STREAM(
+      rclcpp::get_logger(name_action_get_path_),
+      "Internal Error: No plugin loaded");
 
     // Abort the action and return an error result to the client
     goal_handle->abort(result);
@@ -482,7 +503,7 @@ void PlannerCostmapServer::callActionGetPath(ServerGoalHandleGetPathPtr goal_han
   // planner ID that was loaded successfully. Do not depend on unordered_map
   // iteration order.
   if (goal.planner_id.empty()) {
-    for (const auto& planner_id : planner_ids_) {
+    for (const auto & planner_id : planner_ids_) {
       auto it = planners_.find(planner_id);
       if (it != planners_.end() && it->second) {
         selected_planner_id = it->first;
@@ -491,8 +512,9 @@ void PlannerCostmapServer::callActionGetPath(ServerGoalHandleGetPathPtr goal_han
       }
     }
     if (!planner_ptr) {
-      RCLCPP_FATAL_STREAM(rclcpp::get_logger(name_action_get_path_),
-                          "Internal Error: No configured planner plugin is loaded");
+      RCLCPP_FATAL_STREAM(
+        rclcpp::get_logger(name_action_get_path_),
+        "Internal Error: No configured planner plugin is loaded");
       goal_handle->abort(result);
       return;
     }
@@ -503,9 +525,10 @@ void PlannerCostmapServer::callActionGetPath(ServerGoalHandleGetPathPtr goal_han
     // If the planner does not exist or the plugin pointer is invalid,
     // abort the action with an internal error
     if (it == planners_.end() || !it->second) {
-      RCLCPP_FATAL_STREAM(rclcpp::get_logger(name_action_get_path_),
-                "Internal Error: No plugin loaded with name "
-                  << goal.planner_id);
+      RCLCPP_FATAL_STREAM(
+        rclcpp::get_logger(name_action_get_path_),
+        "Internal Error: No plugin loaded with name "
+          << goal.planner_id);
 
       goal_handle->abort(result);
       return;
@@ -516,53 +539,57 @@ void PlannerCostmapServer::callActionGetPath(ServerGoalHandleGetPathPtr goal_han
     planner_ptr = it->second;
   }
 
-  RCLCPP_INFO(get_logger(),
-              "[PlannerServer] calling planner plugin id=%s requested_id=%s",
-              selected_planner_id.c_str(),
-              goal.planner_id.empty() ? "<empty>" : goal.planner_id.c_str());
+  RCLCPP_INFO(
+    get_logger(),
+    "[PlannerServer] calling planner plugin id=%s requested_id=%s",
+    selected_planner_id.c_str(),
+    goal.planner_id.empty() ? "<empty>" : goal.planner_id.c_str());
 
   navflex_costmap_nav::PlannerExecution::Ptr planner_execution =
-      newPlannerExecution(selected_planner_id, planner_ptr);
+    newPlannerExecution(selected_planner_id, planner_ptr);
 
   // start another planning action
   const auto start_before_steady = std::chrono::steady_clock::now();
   RCLCPP_INFO(
-      get_logger(),
-      "[PlannerServer] PlannerAction::start begin id=%s elapsed_since_execute_ms=%.3f",
-      selected_planner_id.c_str(),
-      std::chrono::duration<double, std::milli>(
-          start_before_steady - execute_enter_steady).count());
+    get_logger(),
+    "[PlannerServer] PlannerAction::start begin id=%s elapsed_since_execute_ms=%.3f",
+    selected_planner_id.c_str(),
+    std::chrono::duration<double, std::milli>(
+      start_before_steady - execute_enter_steady).count());
 
   planner_action_->start(goal_handle, planner_execution);
 
   const auto start_after_steady = std::chrono::steady_clock::now();
   RCLCPP_INFO(
-      get_logger(),
-      "[PlannerServer] PlannerAction::start returned id=%s start_call_ms=%.3f total_execute_cb_ms=%.3f",
-      selected_planner_id.c_str(),
-      std::chrono::duration<double, std::milli>(
-          start_after_steady - start_before_steady).count(),
-      std::chrono::duration<double, std::milli>(
-          start_after_steady - execute_enter_steady).count());
+    get_logger(),
+    "[PlannerServer] PlannerAction::start returned id=%s start_call_ms=%.3f total_execute_cb_ms=%.3f",
+    selected_planner_id.c_str(),
+    std::chrono::duration<double, std::milli>(
+      start_after_steady - start_before_steady).count(),
+    std::chrono::duration<double, std::milli>(
+      start_after_steady - execute_enter_steady).count());
 }
 
 rclcpp_action::CancelResponse PlannerCostmapServer::cancelActionGetPath(
-    ServerGoalHandleGetPathPtr goal_handle) {
-  RCLCPP_INFO_STREAM(rclcpp::get_logger(name_action_get_path_),
-                     "Cancel action \"get_path\"");
+  ServerGoalHandleGetPathPtr goal_handle)
+{
+  RCLCPP_INFO_STREAM(
+    rclcpp::get_logger(name_action_get_path_),
+    "Cancel action \"get_path\"");
   return rclcpp_action::CancelResponse::
-      ACCEPT;  // returning ACCEPT here will change the goal_handle state via
-               // rclcpp_action code. The planner_action reacts on that change
-               // and will stop execution and cancel the action
+         ACCEPT; // returning ACCEPT here will change the goal_handle state via
+                 // rclcpp_action code. The planner_action reacts on that change
+                 // and will stop execution and cancel the action
 }
 
 navflex_costmap_nav::PlannerExecution::Ptr
 PlannerCostmapServer::newPlannerExecution(
-    const std::string& plugin_name,
-    const nav2_core::GlobalPlanner::Ptr& plugin_ptr) {
+  const std::string & plugin_name,
+  const nav2_core::GlobalPlanner::Ptr & plugin_ptr)
+{
   auto node = shared_from_this();
   return std::make_shared<navflex_costmap_nav::PlannerExecution>(
-      plugin_name, plugin_ptr, robot_info_, node);
+    plugin_name, plugin_ptr, robot_info_, node);
 }
 
 }  // namespace navflex_costmap_nav

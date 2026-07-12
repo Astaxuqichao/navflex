@@ -69,9 +69,10 @@ public:
    * @param robot_info Shared reference to current robot state information
    * @param node Shared pointer to ROS2 node for logging and parameter access
    */
-  NavflexExecutionBase(const std::string& name,
-                       const navflex_utility::RobotInformation::ConstPtr& robot_info,
-                       const rclcpp_lifecycle::LifecycleNode::SharedPtr& node);
+  NavflexExecutionBase(
+    const std::string & name,
+    const navflex_utility::RobotInformation::ConstPtr & robot_info,
+    const rclcpp_lifecycle::LifecycleNode::SharedPtr & node);
 
   /**
    * @brief Virtual destructor
@@ -136,7 +137,7 @@ public:
   virtual bool cancel()
   {
     return false;
-  };
+  }
 
   /**
    * @brief Wait for thread to finish (blocking join)
@@ -167,7 +168,7 @@ public:
    *
    * @note Useful for polling state with bounded wait time
    */
-  std::cv_status waitForStateUpdate(std::chrono::microseconds const& duration);
+  std::cv_status waitForStateUpdate(std::chrono::microseconds const & duration);
 
   /**
    * @brief Get the current execution outcome
@@ -204,7 +205,7 @@ public:
    *
    * @return Const reference to name string
    */
-  const std::string& getName() const;
+  const std::string & getName() const;
 
   /**
    * @brief Optional pre-execution setup hook
@@ -217,7 +218,7 @@ public:
    *
    * @note Override if you need pre-execution setup (resources, logging, etc.)
    */
-  virtual void preRun() {};
+  virtual void preRun() {}
 
   /**
    * @brief Optional post-execution cleanup hook
@@ -230,7 +231,7 @@ public:
    *
    * @note Override if you need post-execution cleanup (resource release, etc.)
    */
-  virtual void postRun() {};
+  virtual void postRun() {}
 
 protected:
   /**
@@ -255,11 +256,11 @@ protected:
    * @note Default implementation provided; override in derived classes
    * @see preRun(), postRun() for setup/cleanup
    */
-  virtual void run() {};
+  virtual void run() {}
 
   void setOutcome(uint32_t outcome);
-  void setMessage(const std::string& message);
-  void setOutcomeAndMessage(uint32_t outcome, const std::string& message);
+  void setMessage(const std::string & message);
+  void setOutcomeAndMessage(uint32_t outcome, const std::string & message);
 
   // ========== Protected Member Access ==========
   /// Condition variable for thread synchronization - notify when state changes

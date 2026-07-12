@@ -13,7 +13,8 @@
 #include "navflex_base/navflex_action_base.hpp"
 #include "navflex_base/controller_execution.h"
 
-namespace navflex_costmap_nav {
+namespace navflex_costmap_nav
+{
 
 /**
  * @class ControllerAction
@@ -30,14 +31,16 @@ namespace navflex_costmap_nav {
  * it updates the plan in-place without restarting the execution thread.
  */
 class ControllerAction
-    : public NavflexActionBase<nav2_msgs::action::FollowPath, ControllerExecution> {
- public:
+  : public NavflexActionBase<nav2_msgs::action::FollowPath, ControllerExecution>
+{
+public:
   typedef std::shared_ptr<ControllerAction> Ptr;
   using ActionFollowPath = nav2_msgs::action::FollowPath;
 
-  ControllerAction(const rclcpp_lifecycle::LifecycleNode::SharedPtr& node,
-                   const std::string& name,
-                   const navflex_utility::RobotInformation::ConstPtr& robot_info);
+  ControllerAction(
+    const rclcpp_lifecycle::LifecycleNode::SharedPtr & node,
+    const std::string & name,
+    const navflex_utility::RobotInformation::ConstPtr & robot_info);
 
   /**
    * @brief Override start() to support in-place plan updates.
@@ -46,8 +49,9 @@ class ControllerAction
    * simply updates the plan without stopping the execution thread.
    * Otherwise falls back to the standard NavflexActionBase::start() logic.
    */
-  void start(const GoalHandlePtr& goal_handle,
-             ControllerExecution::Ptr execution_ptr) override;
+  void start(
+    const GoalHandlePtr & goal_handle,
+    ControllerExecution::Ptr execution_ptr) override;
 
   /**
    * @brief Implements the FollowPath state machine loop.
@@ -55,17 +59,19 @@ class ControllerAction
    * Monitors the ControllerExecution state and reports feedback / result
    * back to the action client. Handles all ControllerState transitions.
    */
-  void runImpl(const GoalHandlePtr& goal_handle,
-               ControllerExecution& execution) override;
+  void runImpl(
+    const GoalHandlePtr & goal_handle,
+    ControllerExecution & execution) override;
 
- protected:
+protected:
   /**
    * @brief Publish FollowPath feedback
    */
-  void publishFeedback(GoalHandle& goal_handle,
-                       const geometry_msgs::msg::TwistStamped& cmd_vel,
-                       uint32_t outcome,
-                       const std::string& message);
+  void publishFeedback(
+    GoalHandle & goal_handle,
+    const geometry_msgs::msg::TwistStamped & cmd_vel,
+    uint32_t outcome,
+    const std::string & message);
 
   std::mutex goal_mtx_;  ///< Protects robot_pose_/goal_pose_/pending_goal_handle_
   geometry_msgs::msg::PoseStamped robot_pose_;  ///< Latest robot pose

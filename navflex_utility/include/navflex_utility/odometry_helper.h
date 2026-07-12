@@ -51,29 +51,30 @@ namespace navflex_utility
 class OdometryHelper
 {
 public:
-
   /** @brief Constructor.
-   * @param node Shared pointer to the node handle via which 
+   * @param node Shared pointer to the node handle via which
    *        the OdometryHelper shall subscribe to topics and
    *        publish log messages.
    * @param odom_topic The topic on which to subscribe to Odometry
    *        messages.  If the empty string is given (the default), no
    *        subscription is done.
    */
-  OdometryHelper(const rclcpp_lifecycle::LifecycleNode::SharedPtr& node, const std::string& odom_topic = "");
+  OdometryHelper(
+    const rclcpp_lifecycle::LifecycleNode::SharedPtr & node,
+    const std::string & odom_topic = "");
   ~OdometryHelper() {}
 
   /**
    * @brief Callback for receiving odometry data
    * @param msg An Odometry message
    */
-  void odomCallback(const nav_msgs::msg::Odometry::ConstSharedPtr& msg);
+  void odomCallback(const nav_msgs::msg::Odometry::ConstSharedPtr & msg);
 
   /**
    * @brief Copy over the  information
    * @param base_odom Copied odometry msg
    */
-  void getOdom(nav_msgs::msg::Odometry& base_odom) const;
+  void getOdom(nav_msgs::msg::Odometry & base_odom) const;
 
   /** @brief Set the odometry topic.  This overrides what was set in the constructor, if anything.
    *
@@ -81,10 +82,10 @@ public:
    *
    * If odom_topic is the empty string, this just unsubscribes from the previous topic.
    */
-  void setOdomTopic(const std::string& odom_topic);
+  void setOdomTopic(const std::string & odom_topic);
 
   /** @brief Return the current odometry topic. */
-  std::string getOdomTopic() const { return odom_topic_; }
+  std::string getOdomTopic() const {return odom_topic_;}
 
 private:
   rclcpp_lifecycle::LifecycleNode::SharedPtr node_;

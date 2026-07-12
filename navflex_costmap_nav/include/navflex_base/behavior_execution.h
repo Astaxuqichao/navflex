@@ -9,7 +9,8 @@
 #include "navflex_utility/robot_information.h"
 #include "navflex_base/navflex_execution_base.h"
 
-namespace navflex_costmap_nav {
+namespace navflex_costmap_nav
+{
 
 /**
  * @class BehaviorExecution
@@ -18,11 +19,13 @@ namespace navflex_costmap_nav {
  * Runs the behavior in a dedicated thread (via NavflexExecutionBase) and
  * tracks its state through the BehaviorState enum.
  */
-class BehaviorExecution : public NavflexExecutionBase {
- public:
+class BehaviorExecution : public NavflexExecutionBase
+{
+public:
   using Ptr = std::shared_ptr<BehaviorExecution>;
 
-  enum BehaviorState {
+  enum BehaviorState
+  {
     INITIALIZED,     ///< Created but not yet started
     STARTED,         ///< Thread started, before runBehavior() is called
     RECOVERING,      ///< runBehavior() is executing
@@ -40,10 +43,10 @@ class BehaviorExecution : public NavflexExecutionBase {
    * @param node         Lifecycle node (for logging / parameters)
    */
   BehaviorExecution(
-      const std::string& name,
-      nav2_core::Behavior::Ptr behavior,
-      const navflex_utility::RobotInformation::ConstPtr& robot_info,
-      const rclcpp_lifecycle::LifecycleNode::SharedPtr& node);
+    const std::string & name,
+    nav2_core::Behavior::Ptr behavior,
+    const navflex_utility::RobotInformation::ConstPtr & robot_info,
+    const rclcpp_lifecycle::LifecycleNode::SharedPtr & node);
 
   ~BehaviorExecution() override = default;
 
@@ -57,13 +60,13 @@ class BehaviorExecution : public NavflexExecutionBase {
   BehaviorState getState() const;
 
   /** @brief Set the command string to pass to runBehavior(). Must be called before start(). */
-  void setCommand(const std::string& cmd) { setMessage(cmd); }
+  void setCommand(const std::string & cmd) {setMessage(cmd);}
 
- protected:
+protected:
   /** @brief Main execution loop — calls runBehavior() and updates state. */
   void run() override;
 
- private:
+private:
   void setState(BehaviorState state);
 
   nav2_core::Behavior::Ptr behavior_;

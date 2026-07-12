@@ -22,7 +22,8 @@
 #include "navflex_base/controller_action.h"
 #include "navflex_base/controller_execution.h"
 
-namespace navflex_costmap_nav {
+namespace navflex_costmap_nav
+{
 
 /**
  * @class ControllerCostmapServer
@@ -35,16 +36,17 @@ namespace navflex_costmap_nav {
  *  - Each incoming goal creates a ControllerExecution and passes it to
  *    ControllerAction::start()
  */
-class ControllerCostmapServer : public nav2_util::LifecycleNode {
- public:
+class ControllerCostmapServer : public nav2_util::LifecycleNode
+{
+public:
   using ControllerMap =
-      std::unordered_map<std::string, nav2_core::Controller::Ptr>;
+    std::unordered_map<std::string, nav2_core::Controller::Ptr>;
 
   using ActionFollowPath = nav2_msgs::action::FollowPath;
   using ServerGoalHandleFollowPath =
-      rclcpp_action::ServerGoalHandle<ActionFollowPath>;
+    rclcpp_action::ServerGoalHandle<ActionFollowPath>;
   using ServerGoalHandleFollowPathPtr =
-      std::shared_ptr<ServerGoalHandleFollowPath>;
+    std::shared_ptr<ServerGoalHandleFollowPath>;
 
   /**
    * @brief Constructor
@@ -53,50 +55,51 @@ class ControllerCostmapServer : public nav2_util::LifecycleNode {
    * @param options      ROS2 node options
    */
   explicit ControllerCostmapServer(
-      std::shared_ptr<nav2_costmap_2d::Costmap2DROS> costmap_ros,
-      const navflex_utility::RobotInformation::ConstPtr& robot_info,
-      const rclcpp::NodeOptions& options = rclcpp::NodeOptions());
+    std::shared_ptr<nav2_costmap_2d::Costmap2DROS> costmap_ros,
+    const navflex_utility::RobotInformation::ConstPtr & robot_info,
+    const rclcpp::NodeOptions & options = rclcpp::NodeOptions());
 
   ~ControllerCostmapServer();
 
- protected:
+protected:
   nav2_util::CallbackReturn on_configure(
-      const rclcpp_lifecycle::State& state) override;
+    const rclcpp_lifecycle::State & state) override;
   nav2_util::CallbackReturn on_activate(
-      const rclcpp_lifecycle::State& state) override;
+    const rclcpp_lifecycle::State & state) override;
   nav2_util::CallbackReturn on_deactivate(
-      const rclcpp_lifecycle::State& state) override;
+    const rclcpp_lifecycle::State & state) override;
   nav2_util::CallbackReturn on_cleanup(
-      const rclcpp_lifecycle::State& state) override;
+    const rclcpp_lifecycle::State & state) override;
   nav2_util::CallbackReturn on_shutdown(
-      const rclcpp_lifecycle::State& state) override;
+    const rclcpp_lifecycle::State & state) override;
 
- private:
+private:
   // -------- action server callbacks --------
   rclcpp_action::GoalResponse handleGoalFollowPath(
-      const rclcpp_action::GoalUUID& uuid,
-      ActionFollowPath::Goal::ConstSharedPtr goal);
+    const rclcpp_action::GoalUUID & uuid,
+    ActionFollowPath::Goal::ConstSharedPtr goal);
 
   rclcpp_action::CancelResponse cancelActionFollowPath(
-      ServerGoalHandleFollowPathPtr goal_handle);
+    ServerGoalHandleFollowPathPtr goal_handle);
 
   void callActionFollowPath(ServerGoalHandleFollowPathPtr goal_handle);
 
   // -------- helpers --------
-  bool findControllerId(const std::string& requested,
-                        std::string& resolved) const;
+  bool findControllerId(
+    const std::string & requested,
+    std::string & resolved) const;
 
   ControllerExecution::Ptr newControllerExecution(
-      const std::string& controller_id,
-      const nav2_core::GoalChecker::Ptr& goal_checker,
-      double xy_goal_tolerance,
-      double yaw_goal_tolerance);
+    const std::string & controller_id,
+    const nav2_core::GoalChecker::Ptr & goal_checker,
+    double xy_goal_tolerance,
+    double yaw_goal_tolerance);
 
   void speedLimitCallback(const nav2_msgs::msg::SpeedLimit::SharedPtr msg);
   void publishZeroVelocity();
 
   rcl_interfaces::msg::SetParametersResult dynamicParametersCallback(
-      std::vector<rclcpp::Parameter> parameters);
+    std::vector<rclcpp::Parameter> parameters);
 
   // -------- plugins --------
   pluginlib::ClassLoader<nav2_core::Controller> lp_loader_;
@@ -112,9 +115,9 @@ class ControllerCostmapServer : public nav2_util::LifecycleNode {
   navflex_utility::RobotInformation::ConstPtr robot_info_;
 
   rclcpp_lifecycle::LifecyclePublisher<geometry_msgs::msg::Twist>::SharedPtr
-      vel_publisher_;
+    vel_publisher_;
   rclcpp_lifecycle::LifecyclePublisher<geometry_msgs::msg::PoseStamped>::SharedPtr
-      current_goal_publisher_;
+    current_goal_publisher_;
 
   rclcpp::Subscription<nav2_msgs::msg::SpeedLimit>::SharedPtr speed_limit_sub_;
 
@@ -131,7 +134,7 @@ class ControllerCostmapServer : public nav2_util::LifecycleNode {
 
   // -------- dynamic params --------
   rclcpp::node_interfaces::OnSetParametersCallbackHandle::SharedPtr
-      dyn_params_handler_;
+    dyn_params_handler_;
   mutable std::mutex dynamic_params_lock_;
 };
 

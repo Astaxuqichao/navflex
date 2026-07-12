@@ -9,9 +9,6 @@
 #include <algorithm>
 
 
-
-
-
 using std::placeholders::_1;
 
 namespace autolabor_simulation
@@ -24,7 +21,7 @@ SimulationLidar::SimulationLidar(const rclcpp::NodeOptions & options)
 {
 
   declare_parameter("min_angle", -M_PI);
-  declare_parameter("max_angle",  M_PI);
+  declare_parameter("max_angle", M_PI);
   declare_parameter("min_distance", 0.15);
   declare_parameter("max_distance", 30.0);
   declare_parameter("noise", 0.0);
@@ -87,7 +84,7 @@ SimulationLidar::SimulationLidar(const rclcpp::NodeOptions & options)
 void SimulationLidar::timerCallback()
 {
   std::lock_guard<std::mutex> lock(map_mutex_);
-  if (local_map_.data.empty()) return;
+  if (local_map_.data.empty()) {return;}
   sensor_msgs::msg::LaserScan scan;
   initLaserScan(scan);
   generateFrame(scan);
@@ -118,7 +115,7 @@ bool SimulationLidar::getPose(double & x, double & y, double & yaw)
       global_frame_,
       lidar_frame_,
       tf2::TimePointZero,
-      tf2::durationFromSec(0.2)); 
+      tf2::durationFromSec(0.2));
 
     x = tf.transform.translation.x;
     y = tf.transform.translation.y;
@@ -126,8 +123,7 @@ bool SimulationLidar::getPose(double & x, double & y, double & yaw)
     tf2::Quaternion q;
     tf2::fromMsg(tf.transform.rotation, q);
     yaw = tf2::getYaw(q);
-  }
-  catch (...) {
+  } catch (...) {
     return false;
   }
 
@@ -137,33 +133,25 @@ bool SimulationLidar::getPose(double & x, double & y, double & yaw)
 void SimulationLidar::generateFrame(sensor_msgs::msg::LaserScan & scan)
 {
   double x, y, yaw;
-  if (!getPose(x, y, yaw)) 
-  {
+  if (!getPose(x, y, yaw)) {
     RCLCPP_WARN(get_logger(), "TF failed");
     return;
   }
   scan.intensities.resize(point_size_);
-  for (int i = 0; i < point_size_; ++i)
-  {
+  for (int i = 0; i < point_size_; ++i) {
     double angle = yaw + min_angle_ + i * step_;
     float ex, ey;
     raycast(x, y, angle, ex, ey);
     float dis = std::hypot(ex - x, ey - y);
-    if (dis < min_dis_ || dis >= max_dis_)
-    {
+    if (dis < min_dis_ || dis >= max_dis_) {
       scan.ranges[i] = std::numeric_limits<float>::infinity();
       scan.intensities[i] = 0.0;   //  无效点
-    }
-    else
-    {
+    } else {
       float noisy_dis = dis + (noise_ > 0.0 ? static_cast<float>(gaussian(0.0, noise_)) : 0.0f);
-      if (noisy_dis < min_dis_ || noisy_dis >= max_dis_)
-      {
+      if (noisy_dis < min_dis_ || noisy_dis >= max_dis_) {
         scan.ranges[i] = std::numeric_limits<float>::infinity();
         scan.intensities[i] = 0.0;
-      }
-      else
-      {
+      } else {
         scan.ranges[i] = noisy_dis;
         scan.intensities[i] = noisy_dis;   //  用距离做强度
       }
@@ -174,12 +162,10 @@ void SimulationLidar::generateFrame(sensor_msgs::msg::LaserScan & scan)
 void SimulationLidar::raycast(float sx, float sy, double theta, float & ex, float & ey)
 {
   float step = local_map_.info.resolution;
-  for (float d = 0; d < max_dis_; d += step)
-  {
+  for (float d = 0; d < max_dis_; d += step) {
     float wx = sx + d * cos(theta);
     float wy = sy + d * sin(theta);
-    if (isOccupied(wx, wy))
-    {
+    if (isOccupied(wx, wy)) {
       ex = wx;
       ey = wy;
       return;
@@ -194,9 +180,11 @@ bool SimulationLidar::isOccupied(float wx, float wy)
   int mx = (wx - local_map_.info.origin.position.x) / local_map_.info.resolution;
   int my = (wy - local_map_.info.origin.position.y) / local_map_.info.resolution;
   if (mx < 0 || my < 0 ||
-      mx >= (int)local_map_.info.width ||
-      my >= (int)local_map_.info.height)
+    mx >= (int)local_map_.info.width ||
+    my >= (int)local_map_.info.height)
+  {
     return true;
+  }
 
   int index = my * local_map_.info.width + mx;
 
@@ -220,7 +208,7 @@ void SimulationLidar::publishPointCloud2(const sensor_msgs::msg::LaserScan & sca
   pts.reserve(point_size_);
   for (int i = 0; i < point_size_; ++i) {
     float r = scan.ranges[i];
-    if (!std::isfinite(r) || r < scan.range_min || r >= scan.range_max) continue;
+    if (!std::isfinite(r) || r < scan.range_min || r >= scan.range_max) {continue;}
     float angle = scan.angle_min + i * scan.angle_increment;
     pts.emplace_back(r * std::cos(angle), r * std::sin(angle));
   }
@@ -236,7 +224,7 @@ void SimulationLidar::publishPointCloud2(const sensor_msgs::msg::LaserScan & sca
     for (int iz = 0; iz < vertical_samples; ++iz) {
       const float z = vertical_samples == 1 ? 0.0f :
         static_cast<float>(
-          std::min(cloud_wall_height_, static_cast<double>(iz) * cloud_wall_step_));
+        std::min(cloud_wall_height_, static_cast<double>(iz) * cloud_wall_step_));
       *iter_x = px;
       *iter_y = py;
       *iter_z = z;
@@ -247,7 +235,8 @@ void SimulationLidar::publishPointCloud2(const sensor_msgs::msg::LaserScan & sca
   cloud_pub_->publish(cloud);
 }
 
-void SimulationLidar::mapCallback(nav_msgs::msg::OccupancyGrid::SharedPtr msg){
+void SimulationLidar::mapCallback(nav_msgs::msg::OccupancyGrid::SharedPtr msg)
+{
   local_map_ = *msg;
   RCLCPP_INFO(this->get_logger(), "map received11");
 }

@@ -17,7 +17,8 @@
 #include "rclcpp/rclcpp.hpp"
 #include "rclcpp_lifecycle/lifecycle_node.hpp"
 
-namespace navflex_costmap_nav {
+namespace navflex_costmap_nav
+{
 
 /**
  * @class ControllerExecution
@@ -29,14 +30,16 @@ namespace navflex_costmap_nav {
  *
  * Follows the same pattern as PlannerExecution for consistency.
  */
-class ControllerExecution : public NavflexExecutionBase {
- public:
+class ControllerExecution : public NavflexExecutionBase
+{
+public:
   typedef std::shared_ptr<ControllerExecution> Ptr;
 
   /**
    * @brief Internal controller execution states
    */
-  enum ControllerState {
+  enum ControllerState
+  {
     INITIALIZED,   ///< Execution created, waiting for plan
     STARTED,       ///< Thread started, about to enter the control loop
     PLANNING,      ///< Computing velocity commands
@@ -66,15 +69,15 @@ class ControllerExecution : public NavflexExecutionBase {
    * @param current_goal_pub Publisher for the current goal pose
    */
   ControllerExecution(
-      const std::string& name,
-      const nav2_core::Controller::Ptr& controller_ptr,
-      const nav2_core::GoalChecker::Ptr& goal_checker,
-      double xy_goal_tolerance,
-      double yaw_goal_tolerance,
-      const navflex_utility::RobotInformation::ConstPtr& robot_info,
-      const rclcpp_lifecycle::LifecycleNode::SharedPtr& node,
-      const rclcpp::Publisher<geometry_msgs::msg::Twist>::SharedPtr& vel_pub,
-      const rclcpp::Publisher<geometry_msgs::msg::PoseStamped>::SharedPtr& current_goal_pub);
+    const std::string & name,
+    const nav2_core::Controller::Ptr & controller_ptr,
+    const nav2_core::GoalChecker::Ptr & goal_checker,
+    double xy_goal_tolerance,
+    double yaw_goal_tolerance,
+    const navflex_utility::RobotInformation::ConstPtr & robot_info,
+    const rclcpp_lifecycle::LifecycleNode::SharedPtr & node,
+    const rclcpp::Publisher<geometry_msgs::msg::Twist>::SharedPtr & vel_pub,
+    const rclcpp::Publisher<geometry_msgs::msg::PoseStamped>::SharedPtr & current_goal_pub);
 
   virtual ~ControllerExecution();
 
@@ -101,19 +104,19 @@ class ControllerExecution : public NavflexExecutionBase {
   /**
    * @brief Return the configured loop frequency (Hz)
    */
-  double getFrequency() const { return frequency_; }
+  double getFrequency() const {return frequency_;}
 
   /**
    * @brief Return the resolved goal tolerances used by this execution.
    */
-  double getXYGoalTolerance() const { return xy_goal_tolerance_; }
-  double getYawGoalTolerance() const { return yaw_goal_tolerance_; }
+  double getXYGoalTolerance() const {return xy_goal_tolerance_;}
+  double getYawGoalTolerance() const {return yaw_goal_tolerance_;}
 
   /**
    * @brief Set a new plan for the controller.
    * Can be called while the controller is running (plan update).
    */
-  void setNewPlan(const nav_msgs::msg::Path& path);
+  void setNewPlan(const nav_msgs::msg::Path & path);
 
   /**
    * @brief Check if a new plan has been set since last getNewPlan() call
@@ -139,17 +142,18 @@ class ControllerExecution : public NavflexExecutionBase {
    * @brief Dynamic reconfigure callback
    */
   rcl_interfaces::msg::SetParametersResult reconfigure(
-      std::vector<rclcpp::Parameter> parameters);
+    std::vector<rclcpp::Parameter> parameters);
 
- protected:
+protected:
   /// Main execution loop - runs in dedicated thread
   virtual void run() override;
 
- private:
-  uint32_t computeVelocityCmd(const geometry_msgs::msg::PoseStamped& robot_pose,
-                              const geometry_msgs::msg::TwistStamped& robot_velocity,
-                              geometry_msgs::msg::TwistStamped& vel_cmd,
-                              std::string& message);
+private:
+  uint32_t computeVelocityCmd(
+    const geometry_msgs::msg::PoseStamped & robot_pose,
+    const geometry_msgs::msg::TwistStamped & robot_velocity,
+    geometry_msgs::msg::TwistStamped & vel_cmd,
+    std::string & message);
   void setState(ControllerState state);
   void publishZeroVelocity();
   bool setControllerFrequency(double frequency);
@@ -203,7 +207,7 @@ class ControllerExecution : public NavflexExecutionBase {
 
   rclcpp_lifecycle::LifecycleNode::SharedPtr node_handle_;
   rclcpp::node_interfaces::OnSetParametersCallbackHandle::SharedPtr
-      dyn_params_handler_;
+    dyn_params_handler_;
 };
 
 }  // namespace navflex_costmap_nav

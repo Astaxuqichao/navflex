@@ -18,23 +18,25 @@
 #include "navflex_base/behavior_action.h"
 #include "navflex_base/behavior_execution.h"
 
-namespace navflex_costmap_nav {
+namespace navflex_costmap_nav
+{
 
 /**
  * @class BehaviorCostmapServer
  * @brief Lifecycle node hosting behavior (recovery) plugins, exposing a
  *        DummyBehavior action server using the NavflexActionBase framework.
  */
-class BehaviorCostmapServer : public nav2_util::LifecycleNode {
- public:
+class BehaviorCostmapServer : public nav2_util::LifecycleNode
+{
+public:
   using BehaviorMap =
-      std::unordered_map<std::string, nav2_core::Behavior::Ptr>;
+    std::unordered_map<std::string, nav2_core::Behavior::Ptr>;
 
   using ActionDummyBehavior = nav2_msgs::action::DummyBehavior;
   using ServerGoalHandleDummyBehavior =
-      rclcpp_action::ServerGoalHandle<ActionDummyBehavior>;
+    rclcpp_action::ServerGoalHandle<ActionDummyBehavior>;
   using ServerGoalHandleDummyBehaviorPtr =
-      std::shared_ptr<ServerGoalHandleDummyBehavior>;
+    std::shared_ptr<ServerGoalHandleDummyBehavior>;
 
   /**
    * @brief Constructor
@@ -43,37 +45,37 @@ class BehaviorCostmapServer : public nav2_util::LifecycleNode {
    * @param options             ROS2 node options
    */
   explicit BehaviorCostmapServer(
-      std::shared_ptr<nav2_costmap_2d::Costmap2DROS> global_costmap_ros,
-      std::shared_ptr<nav2_costmap_2d::Costmap2DROS> local_costmap_ros,
-      const rclcpp::NodeOptions& options = rclcpp::NodeOptions());
+    std::shared_ptr<nav2_costmap_2d::Costmap2DROS> global_costmap_ros,
+    std::shared_ptr<nav2_costmap_2d::Costmap2DROS> local_costmap_ros,
+    const rclcpp::NodeOptions & options = rclcpp::NodeOptions());
 
   ~BehaviorCostmapServer();
 
- protected:
+protected:
   nav2_util::CallbackReturn on_configure(
-      const rclcpp_lifecycle::State& state) override;
+    const rclcpp_lifecycle::State & state) override;
   nav2_util::CallbackReturn on_activate(
-      const rclcpp_lifecycle::State& state) override;
+    const rclcpp_lifecycle::State & state) override;
   nav2_util::CallbackReturn on_deactivate(
-      const rclcpp_lifecycle::State& state) override;
+    const rclcpp_lifecycle::State & state) override;
   nav2_util::CallbackReturn on_cleanup(
-      const rclcpp_lifecycle::State& state) override;
+    const rclcpp_lifecycle::State & state) override;
   nav2_util::CallbackReturn on_shutdown(
-      const rclcpp_lifecycle::State& state) override;
+    const rclcpp_lifecycle::State & state) override;
 
- private:
+private:
   bool loadBehaviorPlugins();
 
   rclcpp_action::GoalResponse handleGoalDummyBehavior(
-      const rclcpp_action::GoalUUID& uuid,
-      ActionDummyBehavior::Goal::ConstSharedPtr goal);
+    const rclcpp_action::GoalUUID & uuid,
+    ActionDummyBehavior::Goal::ConstSharedPtr goal);
 
   rclcpp_action::CancelResponse cancelActionDummyBehavior(
-      ServerGoalHandleDummyBehaviorPtr goal_handle);
+    ServerGoalHandleDummyBehaviorPtr goal_handle);
 
   void callActionDummyBehavior(ServerGoalHandleDummyBehaviorPtr goal_handle);
 
-  BehaviorExecution::Ptr newBehaviorExecution(const std::string& behavior_name);
+  BehaviorExecution::Ptr newBehaviorExecution(const std::string & behavior_name);
 
   // Plugins
   pluginlib::ClassLoader<nav2_core::Behavior> plugin_loader_;

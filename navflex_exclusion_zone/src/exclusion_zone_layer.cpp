@@ -73,7 +73,8 @@ void ExclusionZoneLayer::onInitialize()
             need_recalc_ = true;
           }
           if (auto n = node_.lock()) {
-            RCLCPP_INFO(n->get_logger(),
+            RCLCPP_INFO(
+              n->get_logger(),
               "[ExclusionZoneLayer] '%s' enabled -> %s",
               name_.c_str(), enabled_ ? "true" : "false");
           }
@@ -145,13 +146,14 @@ void ExclusionZoneLayer::cbAddZone(
     try {
       // 等待变换关系最多 0.5 s
       geometry_msgs::msg::TransformStamped tf_stamped =
-        tf_->lookupTransform(target_frame, source_frame, tf2::TimePointZero,
-                             tf2::durationFromSec(0.5));
+        tf_->lookupTransform(
+        target_frame, source_frame, tf2::TimePointZero,
+        tf2::durationFromSec(0.5));
 
       for (const auto & p : msg->polygon.points) {
         geometry_msgs::msg::PointStamped src_pt, dst_pt;
         src_pt.header.frame_id = source_frame;
-        src_pt.header.stamp    = msg->header.stamp;
+        src_pt.header.stamp = msg->header.stamp;
         src_pt.point.x = static_cast<double>(p.x);
         src_pt.point.y = static_cast<double>(p.y);
         src_pt.point.z = static_cast<double>(p.z);

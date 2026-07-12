@@ -67,12 +67,13 @@ namespace navflex_utility
  * @param out Transformed point.
  * @return true, if the transformation succeeded.
  */
-bool transformPoint(const rclcpp_lifecycle::LifecycleNode::ConstSharedPtr& node,
-                    const TF &tf,
-                    const std::string &target_frame,
-                    const rclcpp::Duration &timeout,
-                    const geometry_msgs::msg::PointStamped &in,
-                    geometry_msgs::msg::PointStamped &out);
+bool transformPoint(
+  const rclcpp_lifecycle::LifecycleNode::ConstSharedPtr & node,
+  const TF & tf,
+  const std::string & target_frame,
+  const rclcpp::Duration & timeout,
+  const geometry_msgs::msg::PointStamped & in,
+  geometry_msgs::msg::PointStamped & out);
 
 /**
  * @brief Transforms a pose from one frame into another.
@@ -84,12 +85,13 @@ bool transformPoint(const rclcpp_lifecycle::LifecycleNode::ConstSharedPtr& node,
  * @param out Transformed pose.
  * @return true, if the transformation succeeded.
  */
-bool transformPose(const rclcpp_lifecycle::LifecycleNode::ConstSharedPtr node,
-                   const TF &tf,
-                   const std::string &target_frame,
-                   const rclcpp::Duration &timeout,
-                   const geometry_msgs::msg::PoseStamped &in,
-                   geometry_msgs::msg::PoseStamped &out);
+bool transformPose(
+  const rclcpp_lifecycle::LifecycleNode::ConstSharedPtr node,
+  const TF & tf,
+  const std::string & target_frame,
+  const rclcpp::Duration & timeout,
+  const geometry_msgs::msg::PoseStamped & in,
+  geometry_msgs::msg::PoseStamped & out);
 
 /**
  * @brief Computes the robot pose.
@@ -101,19 +103,22 @@ bool transformPose(const rclcpp_lifecycle::LifecycleNode::ConstSharedPtr node,
  * @param robot_pose the computed rebot pose in the global frame.
  * @return true, if succeeded, false otherwise.
  */
-bool getRobotPose(const rclcpp_lifecycle::LifecycleNode::ConstSharedPtr& node,
-                  const TF &tf,
-                  const std::string &robot_frame,
-                  const std::string &global_frame,
-                  const rclcpp::Duration &timeout,
-                  geometry_msgs::msg::PoseStamped &robot_pose);
+bool getRobotPose(
+  const rclcpp_lifecycle::LifecycleNode::ConstSharedPtr & node,
+  const TF & tf,
+  const std::string & robot_frame,
+  const std::string & global_frame,
+  const rclcpp::Duration & timeout,
+  geometry_msgs::msg::PoseStamped & robot_pose);
 /**
  * @brief Computes the Euclidean-distance between two poses.
  * @param pose1 pose 1
  * @param pose2 pose 2
  * @return Euclidean distance between pose 1 and pose 2.
  */
-double distance(const geometry_msgs::msg::PoseStamped &pose1, const geometry_msgs::msg::PoseStamped &pose2);
+double distance(
+  const geometry_msgs::msg::PoseStamped & pose1,
+  const geometry_msgs::msg::PoseStamped & pose2);
 
 /**
  * @brief Computes the smallest angle between two poses.
@@ -121,7 +126,9 @@ double distance(const geometry_msgs::msg::PoseStamped &pose1, const geometry_msg
  * @param pose2 pose 2
  * @return smallest angle between pose 1 and pose 2.
  */
-double angle(const geometry_msgs::msg::PoseStamped &pose1, const geometry_msgs::msg::PoseStamped &pose2);
+double angle(
+  const geometry_msgs::msg::PoseStamped & pose1,
+  const geometry_msgs::msg::PoseStamped & pose2);
 
 } /* namespace navflex_utility */
 

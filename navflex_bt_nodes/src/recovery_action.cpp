@@ -45,8 +45,8 @@ void RecoveryAction::on_tick()
 
 BT::NodeStatus RecoveryAction::on_success()
 {
-  setOutput("outcome",     result_.result->outcome);
-  setOutput("message",     result_.result->message);
+  setOutput("outcome", result_.result->outcome);
+  setOutput("message", result_.result->message);
   setOutput("used_plugin", result_.result->used_plugin);
   return BT::NodeStatus::SUCCESS;
 }
@@ -75,8 +75,8 @@ void RecoveryAction::halt()
 
 void RecoveryAction::clearOutputs()
 {
-  setOutput("outcome",     static_cast<uint32_t>(Action::Result::FAILURE));
-  setOutput("message",     std::string(""));
+  setOutput("outcome", static_cast<uint32_t>(Action::Result::FAILURE));
+  setOutput("message", std::string(""));
   setOutput("used_plugin", std::string(""));
 }
 

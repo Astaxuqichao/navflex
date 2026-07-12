@@ -42,41 +42,43 @@ using std::placeholders::_1;
 namespace navflex_utility
 {
 
-OdometryHelper::OdometryHelper(const rclcpp_lifecycle::LifecycleNode::SharedPtr& node, const std::string& odom_topic) : node_(node)
+OdometryHelper::OdometryHelper(
+  const rclcpp_lifecycle::LifecycleNode::SharedPtr & node,
+  const std::string & odom_topic)
+: node_(node)
 {
   setOdomTopic(odom_topic);
 }
 
-void OdometryHelper::odomCallback(const nav_msgs::msg::Odometry::ConstSharedPtr& msg)
+void OdometryHelper::odomCallback(const nav_msgs::msg::Odometry::ConstSharedPtr & msg)
 {
   RCLCPP_INFO_STREAM_ONCE(node_->get_logger(), "Odometry received on topic " << getOdomTopic());
 
   // we assume that the odometry is published in the frame of the base
   std::lock_guard<std::mutex> lock(odom_mutex_);
   base_odom_ = *msg;
-  if (base_odom_.header.stamp == rclcpp::Time(0))
+  if (base_odom_.header.stamp == rclcpp::Time(0)) {
     base_odom_.header.stamp = node_->now();
+  }
 }
 
-void OdometryHelper::getOdom(nav_msgs::msg::Odometry& base_odom) const
+void OdometryHelper::getOdom(nav_msgs::msg::Odometry & base_odom) const
 {
   std::lock_guard<std::mutex> lock(odom_mutex_);
   base_odom = base_odom_;
 }
 
-void OdometryHelper::setOdomTopic(const std::string& odom_topic)
+void OdometryHelper::setOdomTopic(const std::string & odom_topic)
 {
-  if (odom_topic != odom_topic_)
-  {
+  if (odom_topic != odom_topic_) {
     odom_topic_ = odom_topic;
 
-    if (!odom_topic_.empty())
-    {
+    if (!odom_topic_.empty()) {
       odom_sub_ =
-          node_->create_subscription<nav_msgs::msg::Odometry>(odom_topic_, 1, std::bind(&OdometryHelper::odomCallback, this, _1));
-    }
-    else
-    {
+        node_->create_subscription<nav_msgs::msg::Odometry>(
+        odom_topic_, 1,
+        std::bind(&OdometryHelper::odomCallback, this, _1));
+    } else {
       odom_sub_.reset(); // TODO check if this disables the subscription
     }
   }

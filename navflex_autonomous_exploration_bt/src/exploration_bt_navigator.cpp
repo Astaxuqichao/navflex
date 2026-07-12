@@ -38,16 +38,17 @@ public:
     declare_parameter("bt_loop_duration", 10);
     declare_parameter("default_server_timeout", 1000);
     declare_parameter("wait_for_service_timeout", 1000);
-    declare_parameter("plugin_lib_names", std::vector<std::string>{
-      "nav2_clear_costmap_service_bt_node",
-      "nav2_goal_updated_condition_bt_node",
-      "nav2_rate_controller_bt_node",
-      "nav2_recovery_node_bt_node",
-      "nav2_round_robin_node_bt_node",
-      "nav2_pipeline_sequence_bt_node",
-      "navflex_get_path_action",
-      "navflex_exe_path_action",
-      "navflex_recovery_action"});
+    declare_parameter(
+      "plugin_lib_names", std::vector<std::string>{
+        "nav2_clear_costmap_service_bt_node",
+        "nav2_goal_updated_condition_bt_node",
+        "nav2_rate_controller_bt_node",
+        "nav2_recovery_node_bt_node",
+        "nav2_round_robin_node_bt_node",
+        "nav2_pipeline_sequence_bt_node",
+        "navflex_get_path_action",
+        "navflex_exe_path_action",
+        "navflex_recovery_action"});
 
     start_sub_ = create_subscription<std_msgs::msg::Empty>(
       get_parameter("start_topic").as_string(), 10,
@@ -132,7 +133,9 @@ private:
       blackboard->set<geometry_msgs::msg::PoseStamped>("goal", makeDummyGoal());
 
       auto tree = bt.createTreeFromFile(get_parameter("bt_xml").as_string(), blackboard);
-      const auto loop_duration = std::chrono::milliseconds(get_parameter("bt_loop_duration").as_int());
+      const auto loop_duration = std::chrono::milliseconds(
+        get_parameter(
+          "bt_loop_duration").as_int());
       auto status = bt.run(
         &tree,
         []() {},

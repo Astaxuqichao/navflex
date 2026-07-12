@@ -20,18 +20,19 @@
 #include "navflex_utility/robot_information.h"
 #include "navflex_base/navflex_execution_base.h"
 
-namespace navflex_costmap_nav {
+namespace navflex_costmap_nav
+{
 
 // ========== Type Trait: has_concurrency_slot ==========
 // Detects if an action Goal type has a concurrency_slot field.
 // Used to conditionally extract slot ID from the goal message.
-template <typename T, typename = void>
+template<typename T, typename = void>
 struct has_concurrency_slot : std::false_type {};
 
-template <typename T>
+template<typename T>
 struct has_concurrency_slot<T,
-    std::void_t<decltype(std::declval<T>().concurrency_slot)>>
-    : std::true_type {};
+  std::void_t<decltype(std::declval<T>().concurrency_slot)>>
+  : std::true_type {};
 
 /**
  * @class NavflexActionBase
@@ -64,9 +65,10 @@ struct has_concurrency_slot<T,
  *
  * @note The Execution type must define a shared_ptr typedef as Execution::Ptr
  */
-template <typename Action, typename Execution>
-class NavflexActionBase {
- public:
+template<typename Action, typename Execution>
+class NavflexActionBase
+{
+public:
   // ========== Type Definitions ==========
   /// Goal handle type for this action
   using GoalHandle = rclcpp_action::ServerGoalHandle<Action>;
@@ -82,9 +84,11 @@ class NavflexActionBase {
    * concurrently with other slots. A slot can be repurposed for a new
    * execution once the previous one completes.
    */
-  struct ConcurrencySlot {
+  struct ConcurrencySlot
+  {
     /// Default constructor initializes slot as unused
-    ConcurrencySlot() : in_use(false) {}
+    ConcurrencySlot()
+    : in_use(false) {}
 
     /// Pointer to the execution object (handles the actual work)
     typename Execution::Ptr execution;
@@ -102,7 +106,7 @@ class NavflexActionBase {
   /// Internal map type: slot ID -> concurrency slot
   using ConcurrencyMap = std::map<SlotId, ConcurrencySlot>;
 
- public:
+public:
   /**
    * @brief Constructor for NavflexActionBase
    *
@@ -114,10 +118,11 @@ class NavflexActionBase {
    * @param name Name identifier for this action (used in logging)
    * @param robot_info Robot state information (position, velocity, etc.)
    */
-  NavflexActionBase(const rclcpp_lifecycle::LifecycleNode::SharedPtr& node,
-                    const std::string& name,
-                    const navflex_utility::RobotInformation::ConstPtr& robot_info)
-      : node_(node), name_(name), robot_info_(robot_info) {}
+  NavflexActionBase(
+    const rclcpp_lifecycle::LifecycleNode::SharedPtr & node,
+    const std::string & name,
+    const navflex_utility::RobotInformation::ConstPtr & robot_info)
+  : node_(node), name_(name), robot_info_(robot_info) {}
 
   /**
    * @brief Destructor - ensures all executions are properly cleaned up
@@ -131,7 +136,7 @@ class NavflexActionBase {
    *
    * @note Non-recursive mutex means cancelAll() cannot be called from here
    */
-  virtual ~NavflexActionBase() { cleanupAllSlots(); }
+  virtual ~NavflexActionBase() {cleanupAllSlots();}
 
   /**
    * @brief Start a new execution in the specified slot
@@ -155,8 +160,10 @@ class NavflexActionBase {
    * @warning Blocking join() on old thread may delay starting new execution
    * @see cancel() for non-blocking cancellation
    */
-  virtual void start(const GoalHandlePtr& goal_handle,
-                     typename Execution::Ptr execution_ptr) {
+  virtual void start(
+    const GoalHandlePtr & goal_handle,
+    typename Execution::Ptr execution_ptr)
+  {
     if (!goal_handle) {
       RCLCPP_ERROR(node_->get_logger(), "Start called with null goal_handle");
       return;
@@ -166,10 +173,11 @@ class NavflexActionBase {
 
     if (goal_handle->is_canceling()) {
       typename Action::Result::SharedPtr result =
-          std::make_shared<typename Action::Result>();
+        std::make_shared<typename Action::Result>();
       goal_handle->canceled(result);
-      RCLCPP_INFO(node_->get_logger(),
-                  "Goal canceled before execution started (slot %u).", slot_id);
+      RCLCPP_INFO(
+        node_->get_logger(),
+        "Goal canceled before execution started (slot %u).", slot_id);
       return;
     }
 
@@ -195,7 +203,8 @@ class NavflexActionBase {
    *       thread may continue briefly while handling the cancellation.
    * @see start() for slot cleanup policy
    */
-  virtual void cancel(GoalHandlePtr goal_handle) {
+  virtual void cancel(GoalHandlePtr goal_handle)
+  {
     if (!goal_handle) {
       RCLCPP_ERROR(node_->get_logger(), "Cancel called with null goal_handle");
       return;
@@ -207,8 +216,9 @@ class NavflexActionBase {
     auto slot_it = concurrency_slots_.find(slot_id);
     if (slot_it != concurrency_slots_.end() && slot_it->second.execution) {
       slot_it->second.execution->cancel();
-      RCLCPP_DEBUG(node_->get_logger(), "Cancel request sent to slot %u.",
-                   slot_id);
+      RCLCPP_DEBUG(
+        node_->get_logger(), "Cancel request sent to slot %u.",
+        slot_id);
     }
   }
 
@@ -228,8 +238,9 @@ class NavflexActionBase {
    * @param goal_handle Handle to communicate goal status and results
    * @param execution Reference to the execution object for this action
    */
-  virtual void runImpl(const GoalHandlePtr& goal_handle,
-                       Execution& execution) = 0;
+  virtual void runImpl(
+    const GoalHandlePtr & goal_handle,
+    Execution & execution) = 0;
 
   /**
    * @brief Execution wrapper - called in dedicated execution thread
@@ -247,18 +258,20 @@ class NavflexActionBase {
    *
    * @note This is the main entry point for execution threads spawned by start()
    */
-  virtual void run(ConcurrencySlot& slot) {
+  virtual void run(ConcurrencySlot & slot)
+  {
     slot.execution->preRun();
     try {
       runImpl(slot.goal_handle, *slot.execution);
-    } catch (const std::exception& e) {
-      RCLCPP_ERROR_STREAM(rclcpp::get_logger(name_),
-                          "Exception in runImpl: " << e.what());
+    } catch (const std::exception & e) {
+      RCLCPP_ERROR_STREAM(
+        rclcpp::get_logger(name_),
+        "Exception in runImpl: " << e.what());
     }
     RCLCPP_DEBUG_STREAM(
-        rclcpp::get_logger(name_),
-        "Finished action \""
-            << name_ << "\" run method, waiting for execution to complete.");
+      rclcpp::get_logger(name_),
+      "Finished action \""
+        << name_ << "\" run method, waiting for execution to complete.");
     slot.execution->join();
     slot.execution->postRun();
     slot.in_use.store(false);
@@ -278,27 +291,29 @@ class NavflexActionBase {
    * @warning This is a blocking operation that may wait significant time
    * @see cancel() for non-blocking single slot cancellation
    */
-  virtual void cancelAll() {
-    RCLCPP_INFO_STREAM(rclcpp::get_logger(name_),
-                       "Canceling all goals for \"" << name_ << "\" ("
-                                                    << concurrency_slots_.size()
-                                                    << " slots active).");
+  virtual void cancelAll()
+  {
+    RCLCPP_INFO_STREAM(
+      rclcpp::get_logger(name_),
+      "Canceling all goals for \"" << name_ << "\" ("
+                                   << concurrency_slots_.size()
+                                   << " slots active).");
     std::lock_guard<std::mutex> guard(slot_map_mtx_);
 
     // First pass: cancel all execution
-    for (auto& [slot_id, concurrency_slot] : concurrency_slots_) {
+    for (auto & [slot_id, concurrency_slot] : concurrency_slots_) {
       if (concurrency_slot.execution) {
         concurrency_slot.execution->cancel();
       }
     }
 
     // Second pass: wait for all threads
-    for (auto& [slot_id, concurrency_slot] : concurrency_slots_) {
+    for (auto & [slot_id, concurrency_slot] : concurrency_slots_) {
       waitAndCleanupThread(concurrency_slot);
     }
   }
 
- protected:
+protected:
   /**
    * @brief Extract the concurrency slot ID from the goal handle.
    *
@@ -309,7 +324,8 @@ class NavflexActionBase {
    * @param goal_handle The goal handle to extract the slot ID from
    * @return SlotId to use for this execution
    */
-  virtual SlotId getSlotId(const GoalHandlePtr& goal_handle) {
+  virtual SlotId getSlotId(const GoalHandlePtr & goal_handle)
+  {
     if constexpr (has_concurrency_slot<typename Action::Goal>::value) {
       return goal_handle->get_goal()->concurrency_slot;
     } else {
@@ -335,7 +351,7 @@ class NavflexActionBase {
   /// Mutex protecting concurrent access to concurrency_slots_ map
   std::mutex slot_map_mtx_;
 
- private:
+private:
   // ========== Private Helper Methods ==========
 
   /**
@@ -346,25 +362,27 @@ class NavflexActionBase {
    *
    * @note Must hold slot_map_mtx_ before calling
    */
-  void cleanupAllSlots() {
+  void cleanupAllSlots()
+  {
     std::lock_guard<std::mutex> guard(slot_map_mtx_);
 
     // First pass: cancel all
-    for (auto& [slot_id, concurrency_slot] : concurrency_slots_) {
+    for (auto & [slot_id, concurrency_slot] : concurrency_slots_) {
       if (concurrency_slot.execution) {
         concurrency_slot.execution->cancel();
       }
     }
 
     // Second pass: cleanup threads and goal handles
-    for (auto& [slot_id, concurrency_slot] : concurrency_slots_) {
+    for (auto & [slot_id, concurrency_slot] : concurrency_slots_) {
       waitAndCleanupThread(concurrency_slot);
 
       // Notify client that goal is aborted
       if (concurrency_slot.goal_handle &&
-          concurrency_slot.goal_handle->is_active()) {
+        concurrency_slot.goal_handle->is_active())
+      {
         typename Action::Result::SharedPtr result =
-            std::make_shared<typename Action::Result>();
+          std::make_shared<typename Action::Result>();
         concurrency_slot.goal_handle->abort(result);
       }
     }
@@ -383,7 +401,8 @@ class NavflexActionBase {
    * @note Must hold slot_map_mtx_ before calling
    * @warning May block if thread is still running
    */
-  void cleanupSlot(SlotId slot_id) {
+  void cleanupSlot(SlotId slot_id)
+  {
     auto slot_it = concurrency_slots_.find(slot_id);
     if (slot_it != concurrency_slots_.end()) {
       if (slot_it->second.in_use.load() && slot_it->second.execution) {
@@ -408,8 +427,10 @@ class NavflexActionBase {
    *
    * @note Must hold slot_map_mtx_ before calling
    */
-  void setupAndStartSlot(SlotId slot_id, const GoalHandlePtr& goal_handle,
-                         typename Execution::Ptr execution_ptr) {
+  void setupAndStartSlot(
+    SlotId slot_id, const GoalHandlePtr & goal_handle,
+    typename Execution::Ptr execution_ptr)
+  {
     // Find or create slot
     auto [slot_it, inserted] = concurrency_slots_.try_emplace(slot_id);
 
@@ -419,11 +440,11 @@ class NavflexActionBase {
     slot_it->second.execution = execution_ptr;
 
     // Get raw pointer before creating thread (thread will capture it)
-    ConcurrencySlot* slot_ptr = &slot_it->second;
+    ConcurrencySlot * slot_ptr = &slot_it->second;
 
     // Create and start execution thread
     slot_it->second.thread_ptr =
-        std::make_unique<std::thread>([this, slot_ptr]() { run(*slot_ptr); });
+      std::make_unique<std::thread>([this, slot_ptr]() {run(*slot_ptr);});
 
     RCLCPP_DEBUG(node_->get_logger(), "Started execution in slot %u.", slot_id);
   }
@@ -440,13 +461,15 @@ class NavflexActionBase {
    *
    * @note May block indefinitely if thread never finishes
    */
-  void waitAndCleanupThread(ConcurrencySlot& slot) {
+  void waitAndCleanupThread(ConcurrencySlot & slot)
+  {
     if (slot.thread_ptr && slot.thread_ptr->joinable()) {
       try {
         slot.thread_ptr->join();
-      } catch (const std::exception& e) {
-        RCLCPP_ERROR_STREAM(node_->get_logger(),
-                            "Error joining thread: " << e.what());
+      } catch (const std::exception & e) {
+        RCLCPP_ERROR_STREAM(
+          node_->get_logger(),
+          "Error joining thread: " << e.what());
       }
     }
     slot.thread_ptr.reset();

@@ -43,26 +43,27 @@
 
 namespace navflex_utility
 {
-RobotInformation::RobotInformation(const rclcpp_lifecycle::LifecycleNode::SharedPtr& node,
-                                   const TFPtr &tf_buffer,
-                                   const std::string &global_frame,
-                                   const std::string &robot_frame,
-                                   const rclcpp::Duration &tf_timeout,
-                                   const std::string &odom_topic)
- : node_(node), tf_buffer_(tf_buffer), global_frame_(global_frame), robot_frame_(robot_frame), tf_timeout_(tf_timeout),
-   odom_helper_(node_, odom_topic)
+RobotInformation::RobotInformation(
+  const rclcpp_lifecycle::LifecycleNode::SharedPtr & node,
+  const TFPtr & tf_buffer,
+  const std::string & global_frame,
+  const std::string & robot_frame,
+  const rclcpp::Duration & tf_timeout,
+  const std::string & odom_topic)
+: node_(node), tf_buffer_(tf_buffer), global_frame_(global_frame), robot_frame_(robot_frame),
+  tf_timeout_(tf_timeout),
+  odom_helper_(node_, odom_topic)
 {
 
 }
 
 
-bool RobotInformation::getRobotPose(geometry_msgs::msg::PoseStamped &robot_pose_globalFrame) const
+bool RobotInformation::getRobotPose(geometry_msgs::msg::PoseStamped & robot_pose_globalFrame) const
 {
   const auto t_now = node_->now();
 
   std::string err_string;
-  if (!tf_buffer_->canTransform(robot_frame_, global_frame_, t_now, tf_timeout_, &err_string))
-  {
+  if (!tf_buffer_->canTransform(robot_frame_, global_frame_, t_now, tf_timeout_, &err_string)) {
     RCLCPP_ERROR_STREAM(node_->get_logger(), "Failed to get robot pose. Reason: " << err_string);
     return false;
   }
@@ -74,7 +75,8 @@ bool RobotInformation::getRobotPose(geometry_msgs::msg::PoseStamped &robot_pose_
   return true;
 }
 
-bool RobotInformation::getRobotLocalPose(geometry_msgs::msg::PoseStamped &robot_pose_localFrame) const
+bool RobotInformation::getRobotLocalPose(geometry_msgs::msg::PoseStamped & robot_pose_localFrame)
+const
 {
   const auto t_now = node_->now();
   geometry_msgs::msg::PoseStamped robot_pose_robotFrame; // default constructed pose at origin
@@ -85,22 +87,26 @@ bool RobotInformation::getRobotLocalPose(geometry_msgs::msg::PoseStamped &robot_
   return true;
 }
 
-bool RobotInformation::getRobotVelocity(geometry_msgs::msg::TwistStamped &robot_velocity) const
+bool RobotInformation::getRobotVelocity(geometry_msgs::msg::TwistStamped & robot_velocity) const
 {
-  if (odom_helper_.getOdomTopic().empty())
-  {
-    RCLCPP_DEBUG_THROTTLE(node_->get_logger(), *(node_->get_clock()), 2000, "Odometry topic set as empty; ignoring retrieve velocity requests");
+  if (odom_helper_.getOdomTopic().empty()) {
+    RCLCPP_DEBUG_THROTTLE(
+      node_->get_logger(),
+      *(node_->get_clock()), 2000,
+      "Odometry topic set as empty; ignoring retrieve velocity requests");
     return true;
   }
 
   nav_msgs::msg::Odometry base_odom;
   odom_helper_.getOdom(base_odom);
-  if (base_odom.header.stamp == rclcpp::Time(0, 0, node_->get_clock()->get_clock_type()))
-  {
-    RCLCPP_WARN_STREAM_THROTTLE(node_->get_logger(), *(node_->get_clock()), 2000,
-                                "No messages received on topic " << odom_helper_.getOdomTopic() << "; robot velocity unknown");
-    RCLCPP_WARN_STREAM_THROTTLE(node_->get_logger(), *(node_->get_clock()), 2000,
-                                "You can disable these warnings by setting parameter 'odom_topic' as empty");
+  if (base_odom.header.stamp == rclcpp::Time(0, 0, node_->get_clock()->get_clock_type())) {
+    RCLCPP_WARN_STREAM_THROTTLE(
+      node_->get_logger(), *(node_->get_clock()), 2000,
+      "No messages received on topic " << odom_helper_.getOdomTopic() <<
+        "; robot velocity unknown");
+    RCLCPP_WARN_STREAM_THROTTLE(
+      node_->get_logger(), *(node_->get_clock()), 2000,
+      "You can disable these warnings by setting parameter 'odom_topic' as empty");
     return false;
   }
   robot_velocity.header.stamp = base_odom.header.stamp;
@@ -109,7 +115,9 @@ bool RobotInformation::getRobotVelocity(geometry_msgs::msg::TwistStamped &robot_
   return true;
 }
 
-bool RobotInformation::isRobotStopped(double rot_stopped_velocity, double trans_stopped_velocity) const
+bool RobotInformation::isRobotStopped(
+  double rot_stopped_velocity,
+  double trans_stopped_velocity) const
 {
   nav_msgs::msg::Odometry base_odom;
   odom_helper_.getOdom(base_odom);
@@ -118,12 +126,12 @@ bool RobotInformation::isRobotStopped(double rot_stopped_velocity, double trans_
          fabs(base_odom.twist.twist.linear.y) <= trans_stopped_velocity;
 }
 
-const std::string& RobotInformation::getGlobalFrame() const {return global_frame_;};
+const std::string & RobotInformation::getGlobalFrame() const {return global_frame_;}
 
-const std::string& RobotInformation::getRobotFrame() const {return robot_frame_;};
+const std::string & RobotInformation::getRobotFrame() const {return robot_frame_;}
 
-const TF& RobotInformation::getTransformListener() const {return *tf_buffer_;};
+const TF & RobotInformation::getTransformListener() const {return *tf_buffer_;}
 
-const rclcpp::Duration& RobotInformation::getTfTimeout() const {return tf_timeout_;}
+const rclcpp::Duration & RobotInformation::getTfTimeout() const {return tf_timeout_;}
 
 } /* namespace navflex_utility */

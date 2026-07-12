@@ -71,7 +71,7 @@ public:
   void activate() override;
   void deactivate() override;
   void reset() override;
-  bool isClearable() override { return true; }
+  bool isClearable() override {return true;}
 
   /// 地图尺寸/分辨率变化时同步 buffer 大小
   void matchSize() override;

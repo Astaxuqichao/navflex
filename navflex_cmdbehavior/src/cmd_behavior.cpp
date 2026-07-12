@@ -9,15 +9,17 @@
 #include "nav2_msgs/action/dummy_behavior.hpp"
 #include "pluginlib/class_list_macros.hpp"
 
-namespace navflex_cmdbehavior {
+namespace navflex_cmdbehavior
+{
 
 // ---------------------------------------------------------------------------
 // Utility: quaternion → yaw
 // ---------------------------------------------------------------------------
 static double quatToYaw(const geometry_msgs::msg::Quaternion & q)
 {
-  return std::atan2(2.0 * (q.w * q.z + q.x * q.y),
-                    1.0 - 2.0 * (q.y * q.y + q.z * q.z));
+  return std::atan2(
+    2.0 * (q.w * q.z + q.x * q.y),
+    1.0 - 2.0 * (q.y * q.y + q.z * q.z));
 }
 
 static bool isFinite(double value)
@@ -29,8 +31,8 @@ static bool isFinite(double value)
 // Shared parameter init — called by the costmap configure (primary path)
 // ---------------------------------------------------------------------------
 void CmdBehavior::init(
-    const rclcpp_lifecycle::LifecycleNode::WeakPtr & parent,
-    const std::string & name)
+  const rclcpp_lifecycle::LifecycleNode::WeakPtr & parent,
+  const std::string & name)
 {
   node_ = parent;
   name_ = name;
@@ -41,19 +43,19 @@ void CmdBehavior::init(
   }
 
   nav2_util::declare_parameter_if_not_declared(
-      node, name_ + ".linear_vel",    rclcpp::ParameterValue(0.2));
+    node, name_ + ".linear_vel", rclcpp::ParameterValue(0.2));
   nav2_util::declare_parameter_if_not_declared(
-      node, name_ + ".angular_vel",   rclcpp::ParameterValue(0.5));
+    node, name_ + ".angular_vel", rclcpp::ParameterValue(0.5));
   nav2_util::declare_parameter_if_not_declared(
-      node, name_ + ".xy_tolerance",  rclcpp::ParameterValue(0.05));
+    node, name_ + ".xy_tolerance", rclcpp::ParameterValue(0.05));
   nav2_util::declare_parameter_if_not_declared(
-      node, name_ + ".yaw_tolerance", rclcpp::ParameterValue(0.017));
+    node, name_ + ".yaw_tolerance", rclcpp::ParameterValue(0.017));
   nav2_util::declare_parameter_if_not_declared(
-      node, name_ + ".timeout",            rclcpp::ParameterValue(30.0));
+    node, name_ + ".timeout", rclcpp::ParameterValue(30.0));
   nav2_util::declare_parameter_if_not_declared(
-      node, name_ + ".control_frequency",  rclcpp::ParameterValue(10.0));
+    node, name_ + ".control_frequency", rclcpp::ParameterValue(10.0));
   nav2_util::declare_parameter_if_not_declared(
-      node, name_ + ".cmd_vel_topic", rclcpp::ParameterValue(std::string("cmd_vel_nav")));
+    node, name_ + ".cmd_vel_topic", rclcpp::ParameterValue(std::string("cmd_vel_nav")));
 
   std::string validation_message;
   if (!loadParameters(validation_message)) {
@@ -61,14 +63,15 @@ void CmdBehavior::init(
   }
 
   cmd_vel_pub_ = node->create_publisher<geometry_msgs::msg::Twist>(
-      cmd_vel_topic_, rclcpp::SystemDefaultsQoS());
+    cmd_vel_topic_, rclcpp::SystemDefaultsQoS());
 
-  RCLCPP_INFO(node->get_logger(),
-      "CmdBehavior '%s' configured: linear_vel=%.2f angular_vel=%.2f "
-      "xy_tol=%.3f yaw_tol=%.3f timeout=%.1f freq=%.1f cmd_vel_topic=%s",
-      name_.c_str(), linear_vel_, angular_vel_,
-      xy_tolerance_, yaw_tolerance_, timeout_, control_frequency_,
-      cmd_vel_topic_.c_str());
+  RCLCPP_INFO(
+    node->get_logger(),
+    "CmdBehavior '%s' configured: linear_vel=%.2f angular_vel=%.2f "
+    "xy_tol=%.3f yaw_tol=%.3f timeout=%.1f freq=%.1f cmd_vel_topic=%s",
+    name_.c_str(), linear_vel_, angular_vel_,
+    xy_tolerance_, yaw_tolerance_, timeout_, control_frequency_,
+    cmd_vel_topic_.c_str());
 }
 
 bool CmdBehavior::loadParameters(std::string & message)
@@ -124,10 +127,10 @@ bool CmdBehavior::validateParameters(std::string & message) const
 //   Satisfies pure-virtual. Not the intended path — no costmap available.
 // ---------------------------------------------------------------------------
 void CmdBehavior::configure(
-    const rclcpp_lifecycle::LifecycleNode::WeakPtr & parent,
-    const std::string & name,
-    std::shared_ptr<tf2_ros::Buffer> /*tf*/,
-    std::shared_ptr<nav2_costmap_2d::CostmapTopicCollisionChecker> /*cc*/)
+  const rclcpp_lifecycle::LifecycleNode::WeakPtr & parent,
+  const std::string & name,
+  std::shared_ptr<tf2_ros::Buffer>/*tf*/,
+  std::shared_ptr<nav2_costmap_2d::CostmapTopicCollisionChecker>/*cc*/)
 {
   global_costmap_ = nullptr;  // no costmap — pose feedback unavailable
   init(parent, name);
@@ -138,10 +141,10 @@ void CmdBehavior::configure(
 //   global_costmap->getRobotPose() is used to track motion completion.
 // ---------------------------------------------------------------------------
 void CmdBehavior::configure(
-    const rclcpp_lifecycle::LifecycleNode::WeakPtr & parent,
-    const std::string & name,
-    std::shared_ptr<nav2_costmap_2d::Costmap2DROS> global_costmap,
-    std::shared_ptr<nav2_costmap_2d::Costmap2DROS> /*local_costmap*/)
+  const rclcpp_lifecycle::LifecycleNode::WeakPtr & parent,
+  const std::string & name,
+  std::shared_ptr<nav2_costmap_2d::Costmap2DROS> global_costmap,
+  std::shared_ptr<nav2_costmap_2d::Costmap2DROS>/*local_costmap*/)
 {
   global_costmap_ = global_costmap;  // stored for getRobotPose() in runBehavior
   init(parent, name);
@@ -159,14 +162,14 @@ void CmdBehavior::cleanup()
 void CmdBehavior::activate() {}
 void CmdBehavior::deactivate() {}
 
-void CmdBehavior::stop() { stop_ = true; }
+void CmdBehavior::stop() {stop_ = true;}
 
 // ---------------------------------------------------------------------------
 // getCurrentPose — delegates to global_costmap->getRobotPose()
 // ---------------------------------------------------------------------------
 bool CmdBehavior::getCurrentPose(geometry_msgs::msg::PoseStamped & pose)
 {
-  if (!global_costmap_) { return false; }
+  if (!global_costmap_) {return false;}
   return global_costmap_->getRobotPose(pose);
 }
 
@@ -215,25 +218,26 @@ uint32_t CmdBehavior::runBehavior(std::string & message)
 
   // ---- Build velocity command ----------------------------------------------
   const auto period = std::chrono::milliseconds(
-      std::max(1, static_cast<int>(1000.0 / control_frequency_)));
+    std::max(1, static_cast<int>(1000.0 / control_frequency_)));
   geometry_msgs::msg::Twist cmd;
-  double target_dist      = 0.0;
+  double target_dist = 0.0;
   double target_angle_rad = 0.0;
 
   if (cmd_type == "linear") {
     cmd.linear.x = (value >= 0.0) ? linear_vel_ : -linear_vel_;
-    target_dist  = std::abs(value);
+    target_dist = std::abs(value);
   } else if (cmd_type == "rotate") {
     target_angle_rad = value;
-    cmd.angular.z    = (value >= 0.0) ? angular_vel_ : -angular_vel_;
+    cmd.angular.z = (value >= 0.0) ? angular_vel_ : -angular_vel_;
   } else if (cmd_type == "wait") {
     if (value <= 0.0) {
       message = "CmdBehavior: wait duration must be > 0";
       RCLCPP_ERROR(node->get_logger(), "%s", message.c_str());
       return Result::FAILURE;
     }
-    RCLCPP_INFO(node->get_logger(), "CmdBehavior '%s': waiting %.3f s",
-                name_.c_str(), value);
+    RCLCPP_INFO(
+      node->get_logger(), "CmdBehavior '%s': waiting %.3f s",
+      name_.c_str(), value);
     const auto wait_end = node->now() + rclcpp::Duration::from_seconds(value);
     const auto deadline_wait = node->now() + rclcpp::Duration::from_seconds(timeout_);
     while (rclcpp::ok() && !stop_) {
@@ -242,7 +246,7 @@ uint32_t CmdBehavior::runBehavior(std::string & message)
         RCLCPP_WARN(node->get_logger(), "%s", message.c_str());
         return Result::PAT_EXCEEDED;
       }
-      if (node->now() >= wait_end) { break; }
+      if (node->now() >= wait_end) {break;}
       std::this_thread::sleep_for(period);
     }
     if (stop_) {
@@ -255,7 +259,7 @@ uint32_t CmdBehavior::runBehavior(std::string & message)
     return Result::SUCCESS;
   } else {
     message = "CmdBehavior: unknown type '" + cmd_type +
-              "', expected 'linear', 'rotate' or 'wait'";
+      "', expected 'linear', 'rotate' or 'wait'";
     RCLCPP_ERROR(node->get_logger(), "%s", message.c_str());
     return Result::FAILURE;
   }
@@ -264,32 +268,34 @@ uint32_t CmdBehavior::runBehavior(std::string & message)
   geometry_msgs::msg::PoseStamped start_pose;
   const bool has_pose = getCurrentPose(start_pose);
   if (!has_pose) {
-    RCLCPP_WARN(node->get_logger(),
-        "CmdBehavior '%s': global_costmap->getRobotPose() unavailable, "
-        "falling back to time-based termination", name_.c_str());
+    RCLCPP_WARN(
+      node->get_logger(),
+      "CmdBehavior '%s': global_costmap->getRobotPose() unavailable, "
+      "falling back to time-based termination", name_.c_str());
   }
 
-  const double start_x   = has_pose ? start_pose.pose.position.x : 0.0;
-  const double start_y   = has_pose ? start_pose.pose.position.y : 0.0;
-  double prev_yaw        = has_pose ? quatToYaw(start_pose.pose.orientation) : 0.0;
+  const double start_x = has_pose ? start_pose.pose.position.x : 0.0;
+  const double start_y = has_pose ? start_pose.pose.position.y : 0.0;
+  double prev_yaw = has_pose ? quatToYaw(start_pose.pose.orientation) : 0.0;
   double accumulated_ang = 0.0;
 
   const double fallback_duration =
-      (cmd_type == "linear")
-          ? target_dist / linear_vel_
-          : std::abs(target_angle_rad) / angular_vel_;
+    (cmd_type == "linear") ?
+    target_dist / linear_vel_ :
+    std::abs(target_angle_rad) / angular_vel_;
 
-  RCLCPP_INFO(node->get_logger(),
-      "CmdBehavior '%s': %s %.3f  speed=%.3f  pose_feedback=%s",
-      name_.c_str(), cmd_type.c_str(), value,
-      (cmd_type == "linear") ? linear_vel_ : angular_vel_,
-      has_pose ? "yes" : "no (time fallback)");
+  RCLCPP_INFO(
+    node->get_logger(),
+    "CmdBehavior '%s': %s %.3f  speed=%.3f  pose_feedback=%s",
+    name_.c_str(), cmd_type.c_str(), value,
+    (cmd_type == "linear") ? linear_vel_ : angular_vel_,
+    has_pose ? "yes" : "no (time fallback)");
 
   // ---- Control loop --------------------------------------------------------
-  const auto deadline    = node->now() + rclcpp::Duration::from_seconds(timeout_);
+  const auto deadline = node->now() + rclcpp::Duration::from_seconds(timeout_);
   const auto fallback_end =
-      has_pose ? rclcpp::Time(0, 0, RCL_ROS_TIME)
-               : node->now() + rclcpp::Duration::from_seconds(fallback_duration);
+    has_pose ? rclcpp::Time(0, 0, RCL_ROS_TIME) :
+    node->now() + rclcpp::Duration::from_seconds(fallback_duration);
 
   while (rclcpp::ok() && !stop_) {
     // Safety timeout
@@ -302,31 +308,33 @@ uint32_t CmdBehavior::runBehavior(std::string & message)
     }
 
     // Fallback: time-based termination
-    if (!has_pose && node->now() > fallback_end) { break; }
+    if (!has_pose && node->now() > fallback_end) {break;}
 
     // Pose-based termination via global_costmap->getRobotPose()
     if (has_pose) {
       geometry_msgs::msg::PoseStamped cur;
       if (getCurrentPose(cur)) {
         if (cmd_type == "linear") {
-          const double dx   = cur.pose.position.x - start_x;
-          const double dy   = cur.pose.position.y - start_y;
+          const double dx = cur.pose.position.x - start_x;
+          const double dy = cur.pose.position.y - start_y;
           const double dist = std::sqrt(dx * dx + dy * dy);
-          RCLCPP_DEBUG(node->get_logger(),
-              "CmdBehavior linear: traveled=%.3f / %.3f m", dist, target_dist);
-          if (dist >= std::max(0.0, target_dist - xy_tolerance_)) { break; }
+          RCLCPP_DEBUG(
+            node->get_logger(),
+            "CmdBehavior linear: traveled=%.3f / %.3f m", dist, target_dist);
+          if (dist >= std::max(0.0, target_dist - xy_tolerance_)) {break;}
         } else {
           double curr_yaw = quatToYaw(cur.pose.orientation);
-          double delta    = curr_yaw - prev_yaw;
-          while (delta >  M_PI) { delta -= 2.0 * M_PI; }
-          while (delta < -M_PI) { delta += 2.0 * M_PI; }
+          double delta = curr_yaw - prev_yaw;
+          while (delta > M_PI) {delta -= 2.0 * M_PI;}
+          while (delta < -M_PI) {delta += 2.0 * M_PI;}
           accumulated_ang += delta;
           prev_yaw = curr_yaw;
-          RCLCPP_DEBUG(node->get_logger(),
-              "CmdBehavior rotate: accumulated=%.3f / %.3f rad",
-              accumulated_ang, target_angle_rad);
+          RCLCPP_DEBUG(
+            node->get_logger(),
+            "CmdBehavior rotate: accumulated=%.3f / %.3f rad",
+            accumulated_ang, target_angle_rad);
           if (std::abs(accumulated_ang) >=
-              std::max(0.0, std::abs(target_angle_rad) - yaw_tolerance_)) { break; }
+            std::max(0.0, std::abs(target_angle_rad) - yaw_tolerance_)) {break;}
         }
       }
     }

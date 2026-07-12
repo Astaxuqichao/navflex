@@ -69,7 +69,7 @@ public:
    *
    * @param options Additional ROS2 node options
    */
-  explicit CostmapNavNode(const rclcpp::NodeOptions& options = rclcpp::NodeOptions());
+  explicit CostmapNavNode(const rclcpp::NodeOptions & options = rclcpp::NodeOptions());
 
   /**
    * @brief Destructor
@@ -92,7 +92,7 @@ public:
    * @return SUCCESS or FAILURE
    */
   rclcpp_lifecycle::node_interfaces::LifecycleNodeInterface::CallbackReturn
-  on_configure(const rclcpp_lifecycle::State& state) override;
+  on_configure(const rclcpp_lifecycle::State & state) override;
 
   /**
    * @brief Activate lifecycle - enable all navigation operations
@@ -106,7 +106,7 @@ public:
    * @return SUCCESS or FAILURE
    */
   rclcpp_lifecycle::node_interfaces::LifecycleNodeInterface::CallbackReturn
-  on_activate(const rclcpp_lifecycle::State& state) override;
+  on_activate(const rclcpp_lifecycle::State & state) override;
 
   /**
    * @brief Deactivate lifecycle - pause all navigation operations
@@ -120,7 +120,7 @@ public:
    * @return SUCCESS or FAILURE
    */
   rclcpp_lifecycle::node_interfaces::LifecycleNodeInterface::CallbackReturn
-  on_deactivate(const rclcpp_lifecycle::State& state) override;
+  on_deactivate(const rclcpp_lifecycle::State & state) override;
 
   /**
    * @brief Cleanup lifecycle - release all resources
@@ -135,7 +135,7 @@ public:
    * @return SUCCESS or FAILURE
    */
   rclcpp_lifecycle::node_interfaces::LifecycleNodeInterface::CallbackReturn
-  on_cleanup(const rclcpp_lifecycle::State& state) override;
+  on_cleanup(const rclcpp_lifecycle::State & state) override;
 
 private:
   // ========== Costmap Components ==========

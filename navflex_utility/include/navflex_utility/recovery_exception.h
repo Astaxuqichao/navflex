@@ -10,9 +10,10 @@ namespace navflex_utility
 
 struct RecoveryException : public std::exception
 {
-  RecoveryException(unsigned int error_code) : outcome(error_code), message(outcome2str(error_code)){}
+  RecoveryException(unsigned int error_code)
+  : outcome(error_code), message(outcome2str(error_code)) {}
 
-  const char* what () const throw ()
+  const char * what() const throw ()
   {
     return message.c_str();
   }

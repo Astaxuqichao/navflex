@@ -43,8 +43,8 @@ namespace navflex_costmap_nav
  * - runImpl() execution: Dedicated execution thread (from NavflexActionBase)
  */
 class PlannerAction
-    : public NavflexActionBase<nav2_msgs::action::ComputePathToPose,
-                               PlannerExecution>
+  : public NavflexActionBase<nav2_msgs::action::ComputePathToPose,
+    PlannerExecution>
 {
 public:
   // ========== Type Definitions ==========
@@ -64,9 +64,10 @@ public:
    * @param name Name identifier for this action (used in logging)
    * @param robot_info Robot state information (position, velocity, configuration)
    */
-  PlannerAction(const rclcpp_lifecycle::LifecycleNode::SharedPtr& node,
-                const std::string& name,
-                const navflex_utility::RobotInformation::ConstPtr& robot_info);
+  PlannerAction(
+    const rclcpp_lifecycle::LifecycleNode::SharedPtr & node,
+    const std::string & name,
+    const navflex_utility::RobotInformation::ConstPtr & robot_info);
 
   /**
    * @brief Execute path planning for a goal (implements NavflexActionBase)
@@ -87,8 +88,9 @@ public:
    * @note Computation happens asynchronously in execution thread
    * @note Path transformation uses robot's current pose
    */
-  void runImpl(const GoalHandlePtr& goal_handle,
-              PlannerExecution& execution) override;
+  void runImpl(
+    const GoalHandlePtr & goal_handle,
+    PlannerExecution & execution) override;
 
 protected:
   /**
@@ -113,15 +115,15 @@ protected:
    * @note Requires valid TF connections and buffer
    */
   bool transformPlanToGlobalFrame(
-      const std::vector<geometry_msgs::msg::PoseStamped>& plan,
-      std::vector<geometry_msgs::msg::PoseStamped>& global_plan);
+    const std::vector<geometry_msgs::msg::PoseStamped> & plan,
+    std::vector<geometry_msgs::msg::PoseStamped> & global_plan);
 
 private:
   // ========== Publishers and Communication ==========
   /// Publisher for goal pose visualization in rviz
   /// Useful for debugging and monitoring planning requests
   rclcpp::Publisher<geometry_msgs::msg::PoseStamped>::SharedPtr
-      current_goal_pub_;
+    current_goal_pub_;
 
   /// Publisher for the computed plan path
   rclcpp::Publisher<nav_msgs::msg::Path>::SharedPtr plan_publisher_;

@@ -33,8 +33,8 @@ ExePathAction::ExePathAction(
 
 void ExePathAction::on_tick()
 {
-  getInput("path",           goal_.path);
-  getInput("controller_id",  goal_.controller_id);
+  getInput("path", goal_.path);
+  getInput("controller_id", goal_.controller_id);
   getInput("xy_goal_tolerance", goal_.xy_goal_tolerance);
   getInput("yaw_goal_tolerance", goal_.yaw_goal_tolerance);
 }
@@ -76,17 +76,17 @@ void ExePathAction::on_wait_for_result(
 
   if (feedback) {
     setOutput("feedback_distance_to_goal", feedback->distance_to_goal);
-    setOutput("feedback_speed",            feedback->speed);
-    setOutput("feedback_outcome",          feedback->outcome);
-    setOutput("feedback_message",          feedback->message);
+    setOutput("feedback_speed", feedback->speed);
+    setOutput("feedback_outcome", feedback->outcome);
+    setOutput("feedback_message", feedback->message);
   }
 }
 
 BT::NodeStatus ExePathAction::on_success()
 {
-  setOutput("outcome",     result_.result->outcome);
-  setOutput("message",     result_.result->message);
-  setOutput("final_pose",  result_.result->final_pose);
+  setOutput("outcome", result_.result->outcome);
+  setOutput("message", result_.result->message);
+  setOutput("final_pose", result_.result->final_pose);
   setOutput("dist_to_goal", result_.result->dist_to_goal);
   setOutput("angle_to_goal", result_.result->angle_to_goal);
   return BT::NodeStatus::SUCCESS;
@@ -95,16 +95,16 @@ BT::NodeStatus ExePathAction::on_success()
 BT::NodeStatus ExePathAction::on_aborted()
 {
   clearOutputs();
-  setOutput("outcome",  static_cast<uint32_t>(Action::Result::FAILURE));
-  setOutput("message",  std::string("ExePath aborted: controller failed"));
+  setOutput("outcome", static_cast<uint32_t>(Action::Result::FAILURE));
+  setOutput("message", std::string("ExePath aborted: controller failed"));
   return BT::NodeStatus::FAILURE;
 }
 
 BT::NodeStatus ExePathAction::on_cancelled()
 {
   clearOutputs();
-  setOutput("outcome",  static_cast<uint32_t>(Action::Result::CANCELED));
-  setOutput("message",  std::string("ExePath cancelled"));
+  setOutput("outcome", static_cast<uint32_t>(Action::Result::CANCELED));
+  setOutput("message", std::string("ExePath cancelled"));
   return BT::NodeStatus::SUCCESS;
 }
 
@@ -116,10 +116,10 @@ void ExePathAction::halt()
 
 void ExePathAction::clearOutputs()
 {
-  setOutput("outcome",     static_cast<uint32_t>(Action::Result::FAILURE));
-  setOutput("message",     std::string(""));
-  setOutput("final_pose",  geometry_msgs::msg::PoseStamped{});
-  setOutput("dist_to_goal",  0.0f);
+  setOutput("outcome", static_cast<uint32_t>(Action::Result::FAILURE));
+  setOutput("message", std::string(""));
+  setOutput("final_pose", geometry_msgs::msg::PoseStamped{});
+  setOutput("dist_to_goal", 0.0f);
   setOutput("angle_to_goal", 0.0f);
 }
 

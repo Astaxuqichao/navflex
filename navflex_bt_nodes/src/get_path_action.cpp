@@ -33,9 +33,9 @@ GetPathAction::GetPathAction(
 
 void GetPathAction::on_tick()
 {
-  getInput("goal",       goal_.goal);
+  getInput("goal", goal_.goal);
   getInput("planner_id", goal_.planner_id);
-  getInput("tolerance",  goal_.tolerance);
+  getInput("tolerance", goal_.tolerance);
 
   bool use_start = false;
   getInput("use_start", use_start);
@@ -47,7 +47,7 @@ void GetPathAction::on_tick()
 
 BT::NodeStatus GetPathAction::on_success()
 {
-  setOutput("path",    result_.result->path);
+  setOutput("path", result_.result->path);
   setOutput("outcome", static_cast<uint8_t>(Action::Result::SUCCESS));
   setOutput("message", std::string("Path computed successfully"));
   return BT::NodeStatus::SUCCESS;
@@ -77,7 +77,7 @@ void GetPathAction::halt()
 
 void GetPathAction::clearOutputs()
 {
-  setOutput("path",    nav_msgs::msg::Path{});
+  setOutput("path", nav_msgs::msg::Path{});
   setOutput("outcome", static_cast<uint8_t>(Action::Result::FAILURE));
   setOutput("message", std::string(""));
 }

@@ -32,7 +32,8 @@
 #include "navflex_base/planner_action.h"
 #include "navflex_base/planner_execution.h"
 
-namespace navflex_costmap_nav {
+namespace navflex_costmap_nav
+{
 
 /**
  * @class PlannerCostmapServer
@@ -52,12 +53,13 @@ namespace navflex_costmap_nav {
  * The server follows standard ROS2 lifecycle (configure → activate → deactivate
  * → cleanup)
  */
-class PlannerCostmapServer : public nav2_util::LifecycleNode {
- public:
+class PlannerCostmapServer : public nav2_util::LifecycleNode
+{
+public:
   // ========== Type Definitions ==========
   /// Map of planner plugins indexed by name
   using PlannerMap =
-      std::unordered_map<std::string, nav2_core::GlobalPlanner::Ptr>;
+    std::unordered_map<std::string, nav2_core::GlobalPlanner::Ptr>;
   /// Action type for path planning requests
   using ActionToPose = nav2_msgs::action::ComputePathToPose;
   /// Goal handle for path planning action
@@ -76,16 +78,16 @@ class PlannerCostmapServer : public nav2_util::LifecycleNode {
    * @param options Additional ROS2 node options
    */
   explicit PlannerCostmapServer(
-      const std::shared_ptr<nav2_costmap_2d::Costmap2DROS> costmap_ros,
-      const navflex_utility::RobotInformation::ConstPtr& robot_info,
-      const rclcpp::NodeOptions& options = rclcpp::NodeOptions());
+    const std::shared_ptr<nav2_costmap_2d::Costmap2DROS> costmap_ros,
+    const navflex_utility::RobotInformation::ConstPtr & robot_info,
+    const rclcpp::NodeOptions & options = rclcpp::NodeOptions());
 
   /**
    * @brief Destructor for PlannerCostmapServer
    */
   ~PlannerCostmapServer();
 
- protected:
+protected:
   /**
    * @brief Configure lifecycle callback - initializes planner plugins
    *
@@ -99,7 +101,7 @@ class PlannerCostmapServer : public nav2_util::LifecycleNode {
    * @return SUCCESS or FAILURE
    */
   nav2_util::CallbackReturn on_configure(
-      const rclcpp_lifecycle::State& state) override;
+    const rclcpp_lifecycle::State & state) override;
 
   /**
    * @brief Activate lifecycle callback - enables planning operations
@@ -113,7 +115,7 @@ class PlannerCostmapServer : public nav2_util::LifecycleNode {
    * @return SUCCESS or FAILURE
    */
   nav2_util::CallbackReturn on_activate(
-      const rclcpp_lifecycle::State& state) override;
+    const rclcpp_lifecycle::State & state) override;
 
   /**
    * @brief Deactivate lifecycle callback - stops planning operations
@@ -127,7 +129,7 @@ class PlannerCostmapServer : public nav2_util::LifecycleNode {
    * @return SUCCESS or FAILURE
    */
   nav2_util::CallbackReturn on_deactivate(
-      const rclcpp_lifecycle::State& state) override;
+    const rclcpp_lifecycle::State & state) override;
 
   /**
    * @brief Cleanup lifecycle callback - releases resources
@@ -141,7 +143,7 @@ class PlannerCostmapServer : public nav2_util::LifecycleNode {
    * @return SUCCESS or FAILURE
    */
   nav2_util::CallbackReturn on_cleanup(
-      const rclcpp_lifecycle::State& state) override;
+    const rclcpp_lifecycle::State & state) override;
 
   /**
    * @brief Shutdown lifecycle callback - emergency cleanup
@@ -152,7 +154,7 @@ class PlannerCostmapServer : public nav2_util::LifecycleNode {
    * @return SUCCESS or FAILURE
    */
   nav2_util::CallbackReturn on_shutdown(
-      const rclcpp_lifecycle::State& state) override;
+    const rclcpp_lifecycle::State & state) override;
 
   // ========== Action Server Handlers ==========
 
@@ -166,8 +168,8 @@ class PlannerCostmapServer : public nav2_util::LifecycleNode {
    * @return Goal acceptance status
    */
   rclcpp_action::GoalResponse handleGoalGetPath(
-      const rclcpp_action::GoalUUID& uuid,
-      ActionToPose::Goal::ConstSharedPtr goal);
+    const rclcpp_action::GoalUUID & uuid,
+    ActionToPose::Goal::ConstSharedPtr goal);
 
   /**
    * @brief Execute path planning for accepted goal
@@ -188,13 +190,13 @@ class PlannerCostmapServer : public nav2_util::LifecycleNode {
    * @return Cancel acceptance status
    */
   rclcpp_action::CancelResponse cancelActionGetPath(
-      ServerGoalHandleGetPathPtr goal_handle);
+    ServerGoalHandleGetPathPtr goal_handle);
 
   navflex_costmap_nav::PlannerExecution::Ptr newPlannerExecution(
-      const std::string& plugin_name,
-      const nav2_core::GlobalPlanner::Ptr& plugin_ptr);
+    const std::string & plugin_name,
+    const nav2_core::GlobalPlanner::Ptr & plugin_ptr);
 
- private:
+private:
   // ========== Plugin Management ==========
   /// Map of loaded planner plugins
   PlannerMap planners_;
@@ -223,7 +225,7 @@ class PlannerCostmapServer : public nav2_util::LifecycleNode {
   std::shared_ptr<nav2_costmap_2d::Costmap2DROS> costmap_ros_;
 
   /// Raw pointer to costmap data (from costmap_ros_)
-  nav2_costmap_2d::Costmap2D* costmap_;
+  nav2_costmap_2d::Costmap2D * costmap_;
 
   // ========== Action Server ==========
   /// ROS2 action server for path planning requests
@@ -245,7 +247,7 @@ class PlannerCostmapServer : public nav2_util::LifecycleNode {
 
   // Dynamic parameters handler
   rclcpp::node_interfaces::OnSetParametersCallbackHandle::SharedPtr
-      dyn_params_handler_;
+    dyn_params_handler_;
   std::mutex dynamic_params_lock_;
 };
 

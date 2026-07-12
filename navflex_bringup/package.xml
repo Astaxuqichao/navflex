@@ -27,6 +27,7 @@
   <depend>navflex_costmap_nav</depend>
   <depend>omni_fake_node</depend>
   <depend>simulation_lidar</depend>
+  <depend>scan_planner</depend>
   <exec_depend>controller_manager</exec_depend>
   <exec_depend>gazebo_ros</exec_depend>
   <exec_depend>robot_state_publisher</exec_depend>

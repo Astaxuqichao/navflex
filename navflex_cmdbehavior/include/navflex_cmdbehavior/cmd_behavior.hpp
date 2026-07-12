@@ -12,7 +12,8 @@
 #include "rclcpp/rclcpp.hpp"
 #include "rclcpp_lifecycle/lifecycle_node.hpp"
 
-namespace navflex_cmdbehavior {
+namespace navflex_cmdbehavior
+{
 
 /**
  * @class CmdBehavior
@@ -33,25 +34,26 @@ namespace navflex_cmdbehavior {
  *   yaw_tolerance  (double, 0.017) — angle tolerance    [rad]
  *   timeout        (double, 30.0)  — safety timeout     [s]
  */
-class CmdBehavior : public nav2_core::Behavior {
- public:
+class CmdBehavior : public nav2_core::Behavior
+{
+public:
   CmdBehavior() = default;
   ~CmdBehavior() override = default;
 
   // TF + collision checker overload — satisfies pure-virtual, not used
   void configure(
-      const rclcpp_lifecycle::LifecycleNode::WeakPtr & parent,
-      const std::string & name,
-      std::shared_ptr<tf2_ros::Buffer> tf,
-      std::shared_ptr<nav2_costmap_2d::CostmapTopicCollisionChecker>
-          collision_checker) override;
+    const rclcpp_lifecycle::LifecycleNode::WeakPtr & parent,
+    const std::string & name,
+    std::shared_ptr<tf2_ros::Buffer> tf,
+    std::shared_ptr<nav2_costmap_2d::CostmapTopicCollisionChecker>
+    collision_checker) override;
 
   // Costmap-based configure — PRIMARY entry point
   void configure(
-      const rclcpp_lifecycle::LifecycleNode::WeakPtr & parent,
-      const std::string & name,
-      std::shared_ptr<nav2_costmap_2d::Costmap2DROS> global_costmap,
-      std::shared_ptr<nav2_costmap_2d::Costmap2DROS> local_costmap) override;
+    const rclcpp_lifecycle::LifecycleNode::WeakPtr & parent,
+    const std::string & name,
+    std::shared_ptr<nav2_costmap_2d::Costmap2DROS> global_costmap,
+    std::shared_ptr<nav2_costmap_2d::Costmap2DROS> local_costmap) override;
 
   void cleanup() override;
   void activate() override;
@@ -60,10 +62,11 @@ class CmdBehavior : public nav2_core::Behavior {
   uint32_t runBehavior(std::string & message) override;
   void stop() override;
 
- private:
+private:
   // Shared parameter init
-  void init(const rclcpp_lifecycle::LifecycleNode::WeakPtr & parent,
-            const std::string & name);
+  void init(
+    const rclcpp_lifecycle::LifecycleNode::WeakPtr & parent,
+    const std::string & name);
 
   // Get robot pose from global costmap
   bool getCurrentPose(geometry_msgs::msg::PoseStamped & pose);

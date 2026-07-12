@@ -57,7 +57,9 @@ public:
         BT::InputPort<uint8_t>(
           "costmap", nav2_msgs::srv::CheckPose::Request::GLOBAL_COSTMAP,
           "Costmap id: 1 local, 2 global"),
-        BT::InputPort<bool>("current_pose", false, "Check current robot pose instead of input pose"),
+        BT::InputPort<bool>(
+          "current_pose", false,
+          "Check current robot pose instead of input pose"),
         BT::OutputPort<uint8_t>("state", "FREE/INSCRIBED/LETHAL/UNKNOWN/OUTSIDE"),
         BT::OutputPort<uint32_t>("cost", "Accumulated pose cost")
       });

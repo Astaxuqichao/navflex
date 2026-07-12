@@ -80,19 +80,24 @@ public:
     BT::PortsList ports = providedBasicPorts({});
 
     // ── Inputs (aligned with DummyBehavior.action goal) ───────────────
-    ports.insert(BT::InputPort<std::string>(
-      "behavior", "spin", "Name of the recovery behavior plugin to execute"));
-    ports.insert(BT::InputPort<std::string>(
-      "command", "", "Free-form command string forwarded to the behavior plugin"));
+    ports.insert(
+      BT::InputPort<std::string>(
+        "behavior", "spin", "Name of the recovery behavior plugin to execute"));
+    ports.insert(
+      BT::InputPort<std::string>(
+        "command", "", "Free-form command string forwarded to the behavior plugin"));
 
     // ── Outputs ───────────────────────────────────────────────────────
-    ports.insert(BT::OutputPort<uint32_t>(
-      "outcome",
-      "Result outcome code (0=SUCCESS, 150=FAILURE, 151=CANCELED, ...)"));
-    ports.insert(BT::OutputPort<std::string>(
-      "message", "Human-readable result message"));
-    ports.insert(BT::OutputPort<std::string>(
-      "used_plugin", "Name of the behavior plugin that was actually used"));
+    ports.insert(
+      BT::OutputPort<uint32_t>(
+        "outcome",
+        "Result outcome code (0=SUCCESS, 150=FAILURE, 151=CANCELED, ...)"));
+    ports.insert(
+      BT::OutputPort<std::string>(
+        "message", "Human-readable result message"));
+    ports.insert(
+      BT::OutputPort<std::string>(
+        "used_plugin", "Name of the behavior plugin that was actually used"));
 
     return ports;
   }

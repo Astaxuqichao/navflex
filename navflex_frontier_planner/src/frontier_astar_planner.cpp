@@ -99,7 +99,8 @@ uint32_t FrontierAStarPlanner::makePlan(
   }
 
   std::ostringstream oss;
-  oss << "Selected reachable frontier candidate " << (selected_index + 1) << "/" << candidates.size()
+  oss << "Selected reachable frontier candidate " << (selected_index + 1) << "/" <<
+    candidates.size()
       << " and generated an A* path on the accumulated point-cloud topology map";
   message = oss.str();
   core_.publishSelection(start, candidates, candidates[selected_index]);

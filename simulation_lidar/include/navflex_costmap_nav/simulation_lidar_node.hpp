@@ -25,7 +25,6 @@ public:
   explicit SimulationLidar(const rclcpp::NodeOptions & options = rclcpp::NodeOptions());
 
 private:
-
   // ===== 主流程 =====
   void timerCallback();
 
@@ -49,7 +48,6 @@ private:
   double gaussian(double mu, double sigma);
 
 private:
-
   // pub/sub
   rclcpp::Publisher<sensor_msgs::msg::LaserScan>::SharedPtr scan_pub_;
   rclcpp::Publisher<sensor_msgs::msg::PointCloud2>::SharedPtr cloud_pub_;
@@ -58,7 +56,7 @@ private:
   rclcpp::TimerBase::SharedPtr timer_;
 
   std::shared_ptr<tf2_ros::TransformBroadcaster> static_broadcaster_;
-  
+
 
   // tf2
   tf2_ros::Buffer tf_buffer_;

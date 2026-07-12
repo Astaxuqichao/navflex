@@ -129,7 +129,6 @@ public:
   };
 
 private:
-
   void pointCloudCallback(const sensor_msgs::msg::PointCloud2::SharedPtr msg);
   void topologyInitializationTimerCallback();
   std::shared_ptr<SharedMapState> getSharedMapState(
@@ -168,16 +167,21 @@ private:
     const std::vector<Point3> & viewpoints,
     const std::vector<Point3> & frontiers,
     const Point3 & current) const;
-  void publishCandidates(const std::vector<Candidate> & candidates, const Candidate * selected) const;
+  void publishCandidates(
+    const std::vector<Candidate> & candidates,
+    const Candidate * selected) const;
 
   rclcpp_lifecycle::LifecycleNode::WeakPtr node_;
   rclcpp::Logger logger_{rclcpp::get_logger("FaelFrontierCore")};
   rclcpp::Clock::SharedPtr clock_;
   std::shared_ptr<tf2_ros::Buffer> tf_;
 
-  rclcpp_lifecycle::LifecyclePublisher<visualization_msgs::msg::MarkerArray>::SharedPtr candidate_pub_;
-  rclcpp_lifecycle::LifecyclePublisher<visualization_msgs::msg::MarkerArray>::SharedPtr topology_pub_;
-  rclcpp_lifecycle::LifecyclePublisher<geometry_msgs::msg::PoseStamped>::SharedPtr selected_candidate_pub_;
+  rclcpp_lifecycle::LifecyclePublisher<visualization_msgs::msg::MarkerArray>::SharedPtr
+    candidate_pub_;
+  rclcpp_lifecycle::LifecyclePublisher<visualization_msgs::msg::MarkerArray>::SharedPtr
+    topology_pub_;
+  rclcpp_lifecycle::LifecyclePublisher<geometry_msgs::msg::PoseStamped>::SharedPtr
+    selected_candidate_pub_;
   rclcpp_lifecycle::LifecyclePublisher<sensor_msgs::msg::PointCloud2>::SharedPtr occupied_map_pub_;
   rclcpp_lifecycle::LifecyclePublisher<sensor_msgs::msg::PointCloud2>::SharedPtr free_map_pub_;
   rclcpp::TimerBase::SharedPtr topology_initialization_timer_;

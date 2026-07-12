@@ -93,39 +93,52 @@ public:
     BT::PortsList ports = providedBasicPorts({});
 
     // ── Inputs (aligned with FollowPath.action goal) ──────────────────
-    ports.insert(BT::InputPort<nav_msgs::msg::Path>(
-      "path", "Global path to follow"));
-    ports.insert(BT::InputPort<std::string>(
-      "controller_id", "FollowPath", "Controller plugin ID"));
-    ports.insert(BT::InputPort<float>(
-      "xy_goal_tolerance", 0.0f,
-      "XY goal tolerance in meters. 0.0 uses controller defaults"));
-    ports.insert(BT::InputPort<float>(
-      "yaw_goal_tolerance", 0.0f,
-      "Yaw goal tolerance in radians. 0.0 uses controller defaults"));
+    ports.insert(
+      BT::InputPort<nav_msgs::msg::Path>(
+        "path", "Global path to follow"));
+    ports.insert(
+      BT::InputPort<std::string>(
+        "controller_id", "FollowPath", "Controller plugin ID"));
+    ports.insert(
+      BT::InputPort<float>(
+        "xy_goal_tolerance", 0.0f,
+        "XY goal tolerance in meters. 0.0 uses controller defaults"));
+    ports.insert(
+      BT::InputPort<float>(
+        "yaw_goal_tolerance", 0.0f,
+        "Yaw goal tolerance in radians. 0.0 uses controller defaults"));
 
     // ── Outputs ───────────────────────────────────────────────────────
-    ports.insert(BT::OutputPort<uint32_t>(
-      "outcome",
-      "Result outcome code (0=SUCCESS, 100=FAILURE, 101=CANCELED, ...)"));
-    ports.insert(BT::OutputPort<std::string>(
-      "message", "Human-readable result message"));
-    ports.insert(BT::OutputPort<geometry_msgs::msg::PoseStamped>(
-      "final_pose", "Final robot pose reported by the controller"));
-    ports.insert(BT::OutputPort<float>(
-      "dist_to_goal", "Distance to goal at completion"));
-    ports.insert(BT::OutputPort<float>(
-      "angle_to_goal", "Angle to goal at completion"));
+    ports.insert(
+      BT::OutputPort<uint32_t>(
+        "outcome",
+        "Result outcome code (0=SUCCESS, 100=FAILURE, 101=CANCELED, ...)"));
+    ports.insert(
+      BT::OutputPort<std::string>(
+        "message", "Human-readable result message"));
+    ports.insert(
+      BT::OutputPort<geometry_msgs::msg::PoseStamped>(
+        "final_pose", "Final robot pose reported by the controller"));
+    ports.insert(
+      BT::OutputPort<float>(
+        "dist_to_goal", "Distance to goal at completion"));
+    ports.insert(
+      BT::OutputPort<float>(
+        "angle_to_goal", "Angle to goal at completion"));
 
     // ── Feedback (updated every BT tick while running) ─────────────────
-    ports.insert(BT::OutputPort<float>(
-      "feedback_distance_to_goal", "Live distance-to-goal from controller feedback"));
-    ports.insert(BT::OutputPort<float>(
-      "feedback_speed", "Live robot speed from controller feedback"));
-    ports.insert(BT::OutputPort<uint32_t>(
-      "feedback_outcome", "Live outcome code from latest controller cycle"));
-    ports.insert(BT::OutputPort<std::string>(
-      "feedback_message", "Live message from latest controller cycle"));
+    ports.insert(
+      BT::OutputPort<float>(
+        "feedback_distance_to_goal", "Live distance-to-goal from controller feedback"));
+    ports.insert(
+      BT::OutputPort<float>(
+        "feedback_speed", "Live robot speed from controller feedback"));
+    ports.insert(
+      BT::OutputPort<uint32_t>(
+        "feedback_outcome", "Live outcome code from latest controller cycle"));
+    ports.insert(
+      BT::OutputPort<std::string>(
+        "feedback_message", "Live message from latest controller cycle"));
 
     return ports;
   }

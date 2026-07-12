@@ -24,7 +24,7 @@ namespace navflex_costmap_nav
  *
  * @note Requires at least 2 poses to compute meaningful distance
  */
-template <typename _Iter>
+template<typename _Iter>
 double sumDistance(_Iter _begin, _Iter _end)
 {
   // Helper function to compute the distance of a path.
@@ -32,12 +32,14 @@ double sumDistance(_Iter _begin, _Iter _end)
   double dist = 0.0;
 
   // Minimum length of the path is 2
-  if (std::distance(_begin, _end) < 2)
+  if (std::distance(_begin, _end) < 2) {
     return dist;
+  }
 
   // Two-pointer iteration over consecutive poses
-  for (_Iter next = _begin + 1; next != _end; ++_begin, ++next)
+  for (_Iter next = _begin + 1; next != _end; ++_begin, ++next) {
     dist += navflex_utility::distance(*_begin, *next);
+  }
 
   return dist;
 }
@@ -54,22 +56,23 @@ double sumDistance(_Iter _begin, _Iter _end)
  * - Dynamic reconfiguration callback
  */
 PlannerExecution::PlannerExecution(
-    const std::string& name,
-    const nav2_core::GlobalPlanner::Ptr& planner_ptr,
-    const navflex_utility::RobotInformation::ConstPtr& robot_info,
-    const rclcpp_lifecycle::LifecycleNode::SharedPtr& node_handle)
-    : NavflexExecutionBase(name, robot_info, node_handle),
-      planner_(planner_ptr),
-      state_(INITIALIZED),
-      max_retries_(0),
-      planning_(false),
-      has_new_start_(false),
-      has_new_goal_(false),
-      node_handle_(node_handle),
-      patience_(0, 0)
+  const std::string & name,
+  const nav2_core::GlobalPlanner::Ptr & planner_ptr,
+  const navflex_utility::RobotInformation::ConstPtr & robot_info,
+  const rclcpp_lifecycle::LifecycleNode::SharedPtr & node_handle)
+: NavflexExecutionBase(name, robot_info, node_handle),
+  planner_(planner_ptr),
+  state_(INITIALIZED),
+  max_retries_(0),
+  planning_(false),
+  has_new_start_(false),
+  has_new_goal_(false),
+  node_handle_(node_handle),
+  patience_(0, 0)
 {
-  RCLCPP_DEBUG_STREAM(node_handle_->get_logger(),
-                      "Initializing PlannerExecution for planner: " << name);
+  RCLCPP_DEBUG_STREAM(
+    node_handle_->get_logger(),
+    "Initializing PlannerExecution for planner: " << name);
 
   // ========== Initialize Parameters ==========
   auto param_desc = rcl_interfaces::msg::ParameterDescriptor{};
@@ -77,44 +80,48 @@ PlannerExecution::PlannerExecution(
   // Declare planner_frequency parameter
   if (!node_handle_->has_parameter("planner_frequency")) {
     param_desc.description = "The rate in Hz at which to run the planning loop";
-    node_handle_->declare_parameter("planner_frequency",
-                                    rclcpp::ParameterValue(0.0), param_desc);
+    node_handle_->declare_parameter(
+      "planner_frequency",
+      rclcpp::ParameterValue(0.0), param_desc);
   }
 
   // Declare planner_patience parameter
   if (!node_handle_->has_parameter("planner_patience")) {
     param_desc.description =
-        "How long the planner will wait in seconds before giving up";
-    node_handle_->declare_parameter("planner_patience",
-                                    rclcpp::ParameterValue(10.0), param_desc);
+      "How long the planner will wait in seconds before giving up";
+    node_handle_->declare_parameter(
+      "planner_patience",
+      rclcpp::ParameterValue(10.0), param_desc);
   }
 
   // Declare planner_max_retries parameter
   if (!node_handle_->has_parameter("planner_max_retries")) {
     param_desc.description =
-        "How many times to retry planning before giving up";
-    node_handle_->declare_parameter("planner_max_retries",
-                                    rclcpp::ParameterValue(10), param_desc);
+      "How many times to retry planning before giving up";
+    node_handle_->declare_parameter(
+      "planner_max_retries",
+      rclcpp::ParameterValue(10), param_desc);
   }
 
   // ========== Load Parameter Values ==========
   node_handle_->get_parameter("planner_frequency", frequency_);
-  
+
   double patience_seconds = 0.0;
   node_handle_->get_parameter("planner_patience", patience_seconds);
   patience_ = rclcpp::Duration::from_seconds(patience_seconds);
-  
+
   node_handle_->get_parameter("planner_max_retries", max_retries_);
 
-  RCLCPP_INFO_STREAM(node_handle_->get_logger(),
-                     "Planner parameters - Frequency: " << frequency_ << " Hz, "
-                     << "Patience: " << patience_seconds << "s, "
-                     << "Max retries: " << max_retries_);
+  RCLCPP_INFO_STREAM(
+    node_handle_->get_logger(),
+    "Planner parameters - Frequency: " << frequency_ << " Hz, "
+                                       << "Patience: " << patience_seconds << "s, "
+                                       << "Max retries: " << max_retries_);
 
   // ========== Setup Dynamic Reconfiguration ==========
   // Register callback for dynamic parameter updates
   dyn_params_handler_ = node_handle_->add_on_set_parameters_callback(
-      std::bind(&PlannerExecution::reconfigure, this, std::placeholders::_1));
+    std::bind(&PlannerExecution::reconfigure, this, std::placeholders::_1));
 }
 
 /**
@@ -124,8 +131,9 @@ PlannerExecution::PlannerExecution(
  */
 PlannerExecution::~PlannerExecution()
 {
-  RCLCPP_DEBUG_STREAM(node_handle_->get_logger(),
-                      "Destroying PlannerExecution");
+  RCLCPP_DEBUG_STREAM(
+    node_handle_->get_logger(),
+    "Destroying PlannerExecution");
 }
 
 // ========== Public Methods ==========
@@ -157,29 +165,30 @@ PlannerExecution::reconfigure(std::vector<rclcpp::Parameter> parameters)
   std::lock_guard<std::mutex> guard(configuration_mutex_);
   rcl_interfaces::msg::SetParametersResult result;
 
-  for (const rclcpp::Parameter& param : parameters) {
-    const auto& param_name = param.get_name();
+  for (const rclcpp::Parameter & param : parameters) {
+    const auto & param_name = param.get_name();
     try {
       if (param_name == "planner_frequency") {
         frequency_ = param.as_double();
-        RCLCPP_INFO_STREAM(node_handle_->get_logger(),
-                           "Updated planner_frequency to " << frequency_ << " Hz");
-      }
-      else if (param_name == "planner_patience") {
+        RCLCPP_INFO_STREAM(
+          node_handle_->get_logger(),
+          "Updated planner_frequency to " << frequency_ << " Hz");
+      } else if (param_name == "planner_patience") {
         double patience_sec = param.as_double();
         patience_ = rclcpp::Duration::from_seconds(patience_sec);
-        RCLCPP_INFO_STREAM(node_handle_->get_logger(),
-                           "Updated planner_patience to " << patience_sec << "s");
-      }
-      else if (param_name == "planner_max_retries") {
+        RCLCPP_INFO_STREAM(
+          node_handle_->get_logger(),
+          "Updated planner_patience to " << patience_sec << "s");
+      } else if (param_name == "planner_max_retries") {
         max_retries_ = param.as_int();
-        RCLCPP_INFO_STREAM(node_handle_->get_logger(),
-                           "Updated planner_max_retries to " << max_retries_);
+        RCLCPP_INFO_STREAM(
+          node_handle_->get_logger(),
+          "Updated planner_max_retries to " << max_retries_);
       }
-    }
-    catch (const std::exception& ex) {
-      RCLCPP_ERROR_STREAM(node_handle_->get_logger(),
-                          "Failed to reconfigure parameter " << param_name << ": " << ex.what());
+    } catch (const std::exception & ex) {
+      RCLCPP_ERROR_STREAM(
+        node_handle_->get_logger(),
+        "Failed to reconfigure parameter " << param_name << ": " << ex.what());
       result.successful = false;
       return result;
     }
@@ -219,8 +228,9 @@ void PlannerExecution::setState(PlanningState state, bool signalling)
   planning_ = !signalling;
 
   // Notify all waiting threads on state transitions
-  if (signalling)
+  if (signalling) {
     condition_.notify_all();
+  }
 }
 
 /**
@@ -272,7 +282,7 @@ std::vector<geometry_msgs::msg::PoseStamped> PlannerExecution::getPlan() const
  * @param goal New goal pose in global frame
  * @param tolerance Goal position tolerance (meters)
  */
-void PlannerExecution::setNewGoal(const geometry_msgs::msg::PoseStamped& goal, double tolerance)
+void PlannerExecution::setNewGoal(const geometry_msgs::msg::PoseStamped & goal, double tolerance)
 {
   std::lock_guard<std::mutex> guard(goal_start_mtx_);
   goal_ = goal;
@@ -290,7 +300,7 @@ void PlannerExecution::setNewGoal(const geometry_msgs::msg::PoseStamped& goal, d
  *
  * @param start New start pose in global frame
  */
-void PlannerExecution::setNewStart(const geometry_msgs::msg::PoseStamped& start)
+void PlannerExecution::setNewStart(const geometry_msgs::msg::PoseStamped & start)
 {
   std::lock_guard<std::mutex> guard(goal_start_mtx_);
   start_ = start;
@@ -309,9 +319,10 @@ void PlannerExecution::setNewStart(const geometry_msgs::msg::PoseStamped& start)
  * @param goal New goal pose in global frame
  * @param tolerance Goal position tolerance (meters)
  */
-void PlannerExecution::setNewStartAndGoal(const geometry_msgs::msg::PoseStamped& start,
-                                          const geometry_msgs::msg::PoseStamped& goal,
-                                          double tolerance)
+void PlannerExecution::setNewStartAndGoal(
+  const geometry_msgs::msg::PoseStamped & start,
+  const geometry_msgs::msg::PoseStamped & goal,
+  double tolerance)
 {
   std::lock_guard<std::mutex> guard(goal_start_mtx_);
   start_ = start;
@@ -336,13 +347,15 @@ void PlannerExecution::setNewStartAndGoal(const geometry_msgs::msg::PoseStamped&
  * @param tolerance Goal position tolerance (meters)
  * @return true if planning thread started, false if already planning
  */
-bool PlannerExecution::start(const geometry_msgs::msg::PoseStamped& start,
-                             const geometry_msgs::msg::PoseStamped& goal,
-                             double tolerance)
+bool PlannerExecution::start(
+  const geometry_msgs::msg::PoseStamped & start,
+  const geometry_msgs::msg::PoseStamped & goal,
+  double tolerance)
 {
   if (planning_) {
-    RCLCPP_WARN_STREAM(node_handle_->get_logger(),
-                       "Cannot start planning: already planning!");
+    RCLCPP_WARN_STREAM(
+      node_handle_->get_logger(),
+      "Cannot start planning: already planning!");
     return false;
   }
 
@@ -352,13 +365,14 @@ bool PlannerExecution::start(const geometry_msgs::msg::PoseStamped& start,
   goal_ = goal;
   tolerance_ = tolerance;
 
-  const geometry_msgs::msg::Point& s = start.pose.position;
-  const geometry_msgs::msg::Point& g = goal.pose.position;
+  const geometry_msgs::msg::Point & s = start.pose.position;
+  const geometry_msgs::msg::Point & g = goal.pose.position;
 
-  RCLCPP_INFO_STREAM(node_handle_->get_logger(),
-                     "Starting path planning from (" << s.x << ", " << s.y << ", " << s.z << ")"
-                     " to (" << g.x << ", " << g.y << ", " << g.z << ") "
-                     "with tolerance " << tolerance << "m");
+  RCLCPP_INFO_STREAM(
+    node_handle_->get_logger(),
+    "Starting path planning from (" << s.x << ", " << s.y << ", " << s.z << ")"
+      " to (" << g.x << ", " << g.y << ", " << g.z << ") "
+      "with tolerance " << tolerance << "m");
 
   return NavflexExecutionBase::start();
 }
@@ -385,8 +399,9 @@ bool PlannerExecution::cancel()
 
   // Keep cancellation local to execution thread for compatibility with
   // planners implementing only nav2_core::GlobalPlanner::createPlan().
-  RCLCPP_DEBUG_STREAM(node_handle_->get_logger(),
-                      "Cancellation flag set for planner execution thread");
+  RCLCPP_DEBUG_STREAM(
+    node_handle_->get_logger(),
+    "Cancellation flag set for planner execution thread");
   return true;
 }
 
@@ -407,19 +422,21 @@ bool PlannerExecution::cancel()
  * @param [out] message Status message (filled by planner)
  * @return Outcome code (0=success, non-zero=error)
  */
-uint32_t PlannerExecution::makePlan(const geometry_msgs::msg::PoseStamped& start,
-                                    const geometry_msgs::msg::PoseStamped& goal,
-                                    double tolerance,
-                                    std::vector<geometry_msgs::msg::PoseStamped>& plan,
-                                    double& cost,
-                                    std::string& message)
+uint32_t PlannerExecution::makePlan(
+  const geometry_msgs::msg::PoseStamped & start,
+  const geometry_msgs::msg::PoseStamped & goal,
+  double tolerance,
+  std::vector<geometry_msgs::msg::PoseStamped> & plan,
+  double & cost,
+  std::string & message)
 {
   (void)tolerance;
 
   nav_msgs::msg::Path nav2_plan;
-  RCLCPP_DEBUG(node_handle_->get_logger(),
-               "[PlannerExecution] calling planner plugin id=%s",
-               name_.c_str());
+  RCLCPP_DEBUG(
+    node_handle_->get_logger(),
+    "[PlannerExecution] calling planner plugin id=%s",
+    name_.c_str());
   const uint32_t outcome = planner_->makePlan(start, goal, nav2_plan, message);
   plan = nav2_plan.poses;
   cost = sumDistance(plan.begin(), plan.end());
@@ -528,153 +545,142 @@ uint32_t PlannerExecution::makePlan(const geometry_msgs::msg::PoseStamped& start
  * 4. Patience exceeded: Increase patience parameter if planning is slow
  * 5. Thread doesn't exit: Check external threads not holding planning_mtx
  */
-  void PlannerExecution::run()
-  {
-    setState(STARTED, false);
-    std::lock_guard<std::mutex> guard(planning_mtx_);
-    int retries = 0;
-    geometry_msgs::msg::PoseStamped current_start = start_;
-    geometry_msgs::msg::PoseStamped current_goal = goal_;
-    double current_tolerance = tolerance_;
+void PlannerExecution::run()
+{
+  setState(STARTED, false);
+  std::lock_guard<std::mutex> guard(planning_mtx_);
+  int retries = 0;
+  geometry_msgs::msg::PoseStamped current_start = start_;
+  geometry_msgs::msg::PoseStamped current_goal = goal_;
+  double current_tolerance = tolerance_;
 
-    last_call_start_time_ = node_handle_->now();
-    last_valid_plan_time_ = node_handle_->now();
+  last_call_start_time_ = node_handle_->now();
+  last_valid_plan_time_ = node_handle_->now();
 
-    try
-    {
-      while (planning_ && rclcpp::ok())
-      {
-        if (should_exit_)
-        {
-          // Early exit if should_exit_ is set
-          handle_thread_interrupted();
-          return;
-        }
+  try {
+    while (planning_ && rclcpp::ok()) {
+      if (should_exit_) {
+        // Early exit if should_exit_ is set
+        handle_thread_interrupted();
+        return;
+      }
 
-        // call the planner
-        std::vector<geometry_msgs::msg::PoseStamped> plan;
-        double cost = 0.0;
+      // call the planner
+      std::vector<geometry_msgs::msg::PoseStamped> plan;
+      double cost = 0.0;
 
-        // lock goal start mutex
-        goal_start_mtx_.lock();
-        if (has_new_start_)
-        {
-          has_new_start_ = false;
-          current_start = start_;
-          RCLCPP_INFO_STREAM(node_handle_->get_logger(), "A new start pose is available. Planning "
-                                                         "with the new start pose!");
-          const geometry_msgs::msg::Point &s = start_.pose.position;
-          RCLCPP_INFO_STREAM(node_handle_->get_logger(),
-                             "New planning start pose: (" << s.x << ", " << s.y << ", " << s.z << ")");
-        }
-        if (has_new_goal_)
-        {
-          has_new_goal_ = false;
-          current_goal = goal_;
-          current_tolerance = tolerance_;
+      // lock goal start mutex
+      goal_start_mtx_.lock();
+      if (has_new_start_) {
+        has_new_start_ = false;
+        current_start = start_;
+        RCLCPP_INFO_STREAM(
+          node_handle_->get_logger(), "A new start pose is available. Planning "
+          "with the new start pose!");
+        const geometry_msgs::msg::Point & s = start_.pose.position;
+        RCLCPP_INFO_STREAM(
+          node_handle_->get_logger(),
+          "New planning start pose: (" << s.x << ", " << s.y << ", " << s.z << ")");
+      }
+      if (has_new_goal_) {
+        has_new_goal_ = false;
+        current_goal = goal_;
+        current_tolerance = tolerance_;
+        RCLCPP_INFO_STREAM(
+          node_handle_->get_logger(),
+          "A new goal pose is available. Planning with the new goal pose and the tolerance: " <<
+            current_tolerance);
+        const geometry_msgs::msg::Point & g = goal_.pose.position;
+        RCLCPP_INFO_STREAM(
+          node_handle_->get_logger(),
+          "New goal pose: (" << g.x << ", " << g.y << ", " << g.z << ")");
+      }
+
+      // unlock goal
+      goal_start_mtx_.unlock();
+      if (cancel_) {
+        RCLCPP_INFO_STREAM(node_handle_->get_logger(), "The global planner has been canceled!");
+        setState(CANCELED, true);
+      } else {
+        setState(PLANNING, false);
+
+        // Reset per-attempt timer so patience tracks single makePlan() call duration
+        last_call_start_time_ = node_handle_->now();
+        std::string planning_message;
+        const uint32_t outcome = makePlan(
+          current_start, current_goal, current_tolerance, plan, cost,
+          planning_message);
+        setOutcomeAndMessage(outcome, planning_message);
+        bool success = outcome < 10;
+
+        std::lock_guard<std::mutex> guard(configuration_mutex_);
+
+        if (cancel_ && !isPatienceExceeded()) {
           RCLCPP_INFO_STREAM(
-              node_handle_->get_logger(),
-              "A new goal pose is available. Planning with the new goal pose and the tolerance: " << current_tolerance);
-          const geometry_msgs::msg::Point &g = goal_.pose.position;
-          RCLCPP_INFO_STREAM(node_handle_->get_logger(),
-                             "New goal pose: (" << g.x << ", " << g.y << ", " << g.z << ")");
-        }
-
-        // unlock goal
-        goal_start_mtx_.unlock();
-        if (cancel_)
-        {
-          RCLCPP_INFO_STREAM(node_handle_->get_logger(), "The global planner has been canceled!");
+            node_handle_->get_logger(),
+            "The planner \"" << name_ << "\" has been canceled!");                    // but not due to patience exceeded
           setState(CANCELED, true);
+        } else if (success) {
+          RCLCPP_INFO(
+            node_handle_->get_logger(),
+            "[PlannerExecution] Successfully found a plan with planner plugin id=%s "
+            "(outcome=%u, cost=%.3f, poses=%zu, elapsed=%.2fs)",
+            name_.c_str(), outcome, cost, plan.size(),
+            (node_handle_->now() - last_call_start_time_).seconds());
+
+          std::lock_guard<std::mutex> plan_mtx_guard(plan_mtx_);
+          plan_ = plan;
+          cost_ = cost;
+          // estimate the cost based on the distance if its zero.
+          if (cost_ == 0) {
+            cost_ = sumDistance(plan_.begin(), plan_.end());
+          }
+
+          last_valid_plan_time_ = node_handle_->now();
+          setState(FOUND_PLAN, true);
+        } else if (max_retries_ > 0 && ++retries > max_retries_) {
+          RCLCPP_INFO_STREAM(
+            node_handle_->get_logger(),
+            "Planning reached max retries! (" << max_retries_ << ")");
+          setState(MAX_RETRIES, true);
+        } else if (isPatienceExceeded()) {
+          // Patience exceeded is handled at two levels: here to stop retrying planning when max_retries is
+          // disabled, and on the navigation server when the planner doesn't return for more that patience seconds.
+          // In the second case, the navigation server has tried to cancel planning (possibly without success, as
+          // old nav_core-based planners do not support canceling), and we add here the fact to the log for info
+          RCLCPP_INFO_STREAM(
+            node_handle_->get_logger(),
+            "Planning patience (" << patience_.seconds() << "s) has been exceeded"
+                                  << (cancel_ ? "; planner canceled!" : ""));
+          setState(PAT_EXCEEDED, true);
+        } else if (max_retries_ == 0) {
+          RCLCPP_WARN_STREAM(node_handle_->get_logger(), "Planning could not find a plan!");
+          setState(NO_PLAN_FOUND, true);
+        } else {
+          const double elapsed = (node_handle_->now() - last_call_start_time_).seconds();
+          RCLCPP_WARN(
+            node_handle_->get_logger(),
+            "[PlannerExecution] Planning attempt failed, retrying... "
+            "(outcome=%u, retry=%d, elapsed=%.2fs/patience=%.1fs) | %s",
+            outcome, retries + 1, elapsed, patience_.seconds(),
+            planning_message.empty() ? "no message" : planning_message.c_str());
+
+          const auto retry_delay = frequency_ > 0.0 ?
+            std::chrono::duration<double>(1.0 / frequency_) :
+            std::chrono::duration<double>(0.1);
+          std::unique_lock<std::mutex> wait_lock(state_wait_mutex_);
+          condition_.wait_for(wait_lock, retry_delay);
         }
-        else
-        {
-          setState(PLANNING, false);
-
-          // Reset per-attempt timer so patience tracks single makePlan() call duration
-          last_call_start_time_ = node_handle_->now();
-          std::string planning_message;
-          const uint32_t outcome = makePlan(
-              current_start, current_goal, current_tolerance, plan, cost,
-              planning_message);
-          setOutcomeAndMessage(outcome, planning_message);
-          bool success = outcome < 10;
-
-          std::lock_guard<std::mutex> guard(configuration_mutex_);
-
-          if (cancel_ && !isPatienceExceeded())
-          {
-            RCLCPP_INFO_STREAM(node_handle_->get_logger(),
-                               "The planner \"" << name_ << "\" has been canceled!"); // but not due to patience exceeded
-            setState(CANCELED, true);
-          }
-          else if (success)
-          {
-            RCLCPP_INFO(node_handle_->get_logger(),
-                        "[PlannerExecution] Successfully found a plan with planner plugin id=%s "
-                        "(outcome=%u, cost=%.3f, poses=%zu, elapsed=%.2fs)",
-                        name_.c_str(), outcome, cost, plan.size(),
-                        (node_handle_->now() - last_call_start_time_).seconds());
-
-            std::lock_guard<std::mutex> plan_mtx_guard(plan_mtx_);
-            plan_ = plan;
-            cost_ = cost;
-            // estimate the cost based on the distance if its zero.
-            if (cost_ == 0)
-              cost_ = sumDistance(plan_.begin(), plan_.end());
-
-            last_valid_plan_time_ = node_handle_->now();
-            setState(FOUND_PLAN, true);
-          }
-          else if (max_retries_ > 0 && ++retries > max_retries_)
-          {
-            RCLCPP_INFO_STREAM(node_handle_->get_logger(),
-                               "Planning reached max retries! (" << max_retries_ << ")");
-            setState(MAX_RETRIES, true);
-          }
-          else if (isPatienceExceeded())
-          {
-            // Patience exceeded is handled at two levels: here to stop retrying planning when max_retries is
-            // disabled, and on the navigation server when the planner doesn't return for more that patience seconds.
-            // In the second case, the navigation server has tried to cancel planning (possibly without success, as
-            // old nav_core-based planners do not support canceling), and we add here the fact to the log for info
-            RCLCPP_INFO_STREAM(node_handle_->get_logger(),
-                               "Planning patience (" << patience_.seconds() << "s) has been exceeded"
-                                                     << (cancel_ ? "; planner canceled!" : ""));
-            setState(PAT_EXCEEDED, true);
-          }
-          else if (max_retries_ == 0)
-          {
-            RCLCPP_WARN_STREAM(node_handle_->get_logger(), "Planning could not find a plan!");
-            setState(NO_PLAN_FOUND, true);
-          }
-          else
-          {
-            const double elapsed = (node_handle_->now() - last_call_start_time_).seconds();
-            RCLCPP_WARN(node_handle_->get_logger(),
-                        "[PlannerExecution] Planning attempt failed, retrying... "
-                        "(outcome=%u, retry=%d, elapsed=%.2fs/patience=%.1fs) | %s",
-                        outcome, retries + 1, elapsed, patience_.seconds(),
-                        planning_message.empty() ? "no message" : planning_message.c_str());
-
-            const auto retry_delay = frequency_ > 0.0
-              ? std::chrono::duration<double>(1.0 / frequency_)
-              : std::chrono::duration<double>(0.1);
-            std::unique_lock<std::mutex> wait_lock(state_wait_mutex_);
-            condition_.wait_for(wait_lock, retry_delay);
-          }
-        }
-      } // while (planning_ && ros::ok())
-    }
-    catch (...)
-    {
-      RCLCPP_WARN_STREAM(node_handle_->get_logger(), "Unknown error occurred.");
-      setState(INTERNAL_ERROR, true);
-      condition_.notify_all();
-    }
+      }
+    }   // while (planning_ && ros::ok())
+  } catch (...) {
+    RCLCPP_WARN_STREAM(node_handle_->get_logger(), "Unknown error occurred.");
+    setState(INTERNAL_ERROR, true);
+    condition_.notify_all();
   }
+}
 
-  /**
+/**
    * Handle external thread interruption (emergency stop)
    *
    * **Purpose:**
@@ -719,12 +725,12 @@ uint32_t PlannerExecution::makePlan(const geometry_msgs::msg::PoseStamped& start
    * @note Always sets state to STOPPED (not CANCELED or other states)
    * @note Notifies all threads waiting on condition_
    */
-  void PlannerExecution::handle_thread_interrupted()
-  {
-    // Planner thread interrupted; probably we have exceeded planner patience
-    RCLCPP_WARN_STREAM(node_handle_->get_logger(), "Planner thread interrupted!");
-    setState(STOPPED, true);
-    condition_.notify_all();
-  }
+void PlannerExecution::handle_thread_interrupted()
+{
+  // Planner thread interrupted; probably we have exceeded planner patience
+  RCLCPP_WARN_STREAM(node_handle_->get_logger(), "Planner thread interrupted!");
+  setState(STOPPED, true);
+  condition_.notify_all();
+}
 
 } /* namespace navflex_costmap_nav */

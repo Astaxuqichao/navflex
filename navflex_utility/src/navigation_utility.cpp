@@ -46,28 +46,30 @@
 namespace navflex_utility
 {
 
-bool getRobotPose(const rclcpp_lifecycle::LifecycleNode::ConstSharedPtr& node,
-                  const TF &tf,
-                  const std::string &robot_frame,
-                  const std::string &global_frame,
-                  const rclcpp::Duration &timeout,
-                  geometry_msgs::msg::PoseStamped &robot_pose)
+bool getRobotPose(
+  const rclcpp_lifecycle::LifecycleNode::ConstSharedPtr & node,
+  const TF & tf,
+  const std::string & robot_frame,
+  const std::string & global_frame,
+  const rclcpp::Duration & timeout,
+  geometry_msgs::msg::PoseStamped & robot_pose)
 {
   geometry_msgs::msg::PoseStamped local_pose;
   local_pose.header.frame_id = robot_frame;
   local_pose.header.stamp = rclcpp::Time(0, 0, node->get_clock()->get_clock_type());
   local_pose.pose.orientation.w = 1.0;
-  bool success = transformPose(node,
-                               tf,
-                               global_frame,
-                               timeout,
-                               local_pose,
-                               robot_pose);
+  bool success = transformPose(
+    node,
+    tf,
+    global_frame,
+    timeout,
+    local_pose,
+    robot_pose);
   const rclcpp::Duration transformAge = node->now() - robot_pose.header.stamp;
-  if (success && transformAge > timeout)
-  {
-    RCLCPP_WARN(node->get_logger(), "Most recent robot pose is %gs old (tolerance %gs)",
-                transformAge.seconds(), timeout.seconds());
+  if (success && transformAge > timeout) {
+    RCLCPP_WARN(
+      node->get_logger(), "Most recent robot pose is %gs old (tolerance %gs)",
+      transformAge.seconds(), timeout.seconds());
     return false;
   }
   return success;
@@ -79,109 +81,119 @@ bool getRobotPose(const rclcpp_lifecycle::LifecycleNode::ConstSharedPtr& node,
  * @param _q The quaternion to check.
  * @param _epsilon The epsilon (squared distance to 1).
  */
-static bool isNormalized(const geometry_msgs::msg::Quaternion& _q, double _epsilon)
+static bool isNormalized(const geometry_msgs::msg::Quaternion & _q, double _epsilon)
 {
-  const double sq_sum = std::pow(_q.x, 2) + std::pow(_q.y, 2) + std::pow(_q.z, 2) + std::pow(_q.w, 2);
+  const double sq_sum =
+    std::pow(_q.x, 2) + std::pow(_q.y, 2) + std::pow(_q.z, 2) + std::pow(_q.w, 2);
   return std::abs(sq_sum - 1.) <= _epsilon;
 }
 
-bool transformPose(const rclcpp_lifecycle::LifecycleNode::ConstSharedPtr node,
-                   const TF &tf,
-                   const std::string &target_frame,
-                   const rclcpp::Duration &timeout,
-                   const geometry_msgs::msg::PoseStamped &in,
-                   geometry_msgs::msg::PoseStamped &out)
+bool transformPose(
+  const rclcpp_lifecycle::LifecycleNode::ConstSharedPtr node,
+  const TF & tf,
+  const std::string & target_frame,
+  const rclcpp::Duration & timeout,
+  const geometry_msgs::msg::PoseStamped & in,
+  geometry_msgs::msg::PoseStamped & out)
 {
   // Note: The tf-library does not check if the input is well formed.
-  if (!isNormalized(in.pose.orientation, 0.01))
-  {
-    RCLCPP_WARN_STREAM(node->get_logger(), "The given quaterinon " << geometry_msgs::msg::to_yaml(in.pose.orientation) << " is not normalized");
+  if (!isNormalized(in.pose.orientation, 0.01)) {
+    RCLCPP_WARN_STREAM(
+      node->get_logger(),
+      "The given quaterinon " << geometry_msgs::msg::to_yaml(
+        in.pose.orientation) << " is not normalized");
     return false;
   }
 
-  if (target_frame == in.header.frame_id)
-  {
+  if (target_frame == in.header.frame_id) {
     out = in;
     return true;
   }
 
   std::string error_msg;
 
-  bool success = tf.canTransform(target_frame,
-                                 in.header.frame_id,
-                                 in.header.stamp,
-                                 timeout,
-                                 &error_msg);
+  bool success = tf.canTransform(
+    target_frame,
+    in.header.frame_id,
+    in.header.stamp,
+    timeout,
+    &error_msg);
 
-  if (!success)
-  {
-    RCLCPP_WARN_STREAM(node->get_logger(), "Failed to look up transform from frame '" << in.header.frame_id 
-                                           << "' into frame '" << target_frame << "': " << error_msg);
+  if (!success) {
+    RCLCPP_WARN_STREAM(
+      node->get_logger(), "Failed to look up transform from frame '" << in.header.frame_id
+                                                                     << "' into frame '" << target_frame << "': " <<
+        error_msg);
     return false;
   }
 
-  try
-  {
+  try {
     tf.transform(in, out, target_frame);
-  }
-  catch (const TFException &ex)
-  {
-    RCLCPP_WARN_STREAM(node->get_logger(), "Failed to transform pose from frame '" <<  in.header.frame_id << " ' into frame '"
-                                           << target_frame << "' with exception: " << ex.what());
+  } catch (const TFException & ex) {
+    RCLCPP_WARN_STREAM(
+      node->get_logger(), "Failed to transform pose from frame '" << in.header.frame_id << " ' into frame '"
+                                                                  << target_frame << "' with exception: " <<
+        ex.what());
     return false;
   }
   return true;
 }
 
-bool transformPoint(const rclcpp_lifecycle::LifecycleNode::ConstSharedPtr& node,
-                    const TF &tf,
-                    const std::string &target_frame,
-                    const rclcpp::Duration &timeout,
-                    const geometry_msgs::msg::PointStamped &in,
-                    geometry_msgs::msg::PointStamped &out)
+bool transformPoint(
+  const rclcpp_lifecycle::LifecycleNode::ConstSharedPtr & node,
+  const TF & tf,
+  const std::string & target_frame,
+  const rclcpp::Duration & timeout,
+  const geometry_msgs::msg::PointStamped & in,
+  geometry_msgs::msg::PointStamped & out)
 {
   std::string error_msg;
 
-  bool success = tf.canTransform(target_frame,
-                                 in.header.frame_id,
-                                 in.header.stamp,
-                                 timeout,
-                                 &error_msg);
+  bool success = tf.canTransform(
+    target_frame,
+    in.header.frame_id,
+    in.header.stamp,
+    timeout,
+    &error_msg);
 
-  if (!success)
-  {
-    RCLCPP_WARN_STREAM(node->get_logger(), "Failed to look up transform from frame '" << in.header.frame_id
-                                           << "' into frame '" << target_frame << "': " << error_msg);
+  if (!success) {
+    RCLCPP_WARN_STREAM(
+      node->get_logger(), "Failed to look up transform from frame '" << in.header.frame_id
+                                                                     << "' into frame '" << target_frame << "': " <<
+        error_msg);
     return false;
   }
 
-  try
-  {
+  try {
     tf.transform(in, out, target_frame);
-  }
-  catch (const TFException &ex)
-  {
-    RCLCPP_WARN_STREAM(node->get_logger(), "Failed to transform point from frame '" <<  in.header.frame_id 
-                                           << " ' into frame '" << target_frame << "' with exception: " << ex.what());
+  } catch (const TFException & ex) {
+    RCLCPP_WARN_STREAM(
+      node->get_logger(), "Failed to transform point from frame '" << in.header.frame_id
+                                                                   << " ' into frame '" << target_frame << "' with exception: " <<
+        ex.what());
     return false;
   }
   return true;
 }
 
-double distance(const geometry_msgs::msg::PoseStamped &pose1, const geometry_msgs::msg::PoseStamped &pose2)
+double distance(
+  const geometry_msgs::msg::PoseStamped & pose1,
+  const geometry_msgs::msg::PoseStamped & pose2)
 {
-  const geometry_msgs::msg::Point &p1 = pose1.pose.position;
-  const geometry_msgs::msg::Point &p2 = pose2.pose.position;
+  const geometry_msgs::msg::Point & p1 = pose1.pose.position;
+  const geometry_msgs::msg::Point & p2 = pose2.pose.position;
   const double dx = p1.x - p2.x;
   const double dy = p1.y - p2.y;
   const double dz = p1.z - p2.z;
   return sqrt(dx * dx + dy * dy + dz * dz);
 }
 
-double angle(const geometry_msgs::msg::PoseStamped &pose1, const geometry_msgs::msg::PoseStamped &pose2)
+double angle(
+  const geometry_msgs::msg::PoseStamped & pose1,
+  const geometry_msgs::msg::PoseStamped & pose2)
 {
-  const geometry_msgs::msg::Quaternion &q1 = pose1.pose.orientation;
-  const geometry_msgs::msg::Quaternion &q2 = pose2.pose.orientation;
+  const geometry_msgs::msg::Quaternion & q1 = pose1.pose.orientation;
+  const geometry_msgs::msg::Quaternion & q2 = pose2.pose.orientation;
   tf2::Quaternion rot1, rot2;
   tf2::fromMsg(q1, rot1);
   tf2::fromMsg(q2, rot2);

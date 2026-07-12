@@ -7,7 +7,8 @@
 // Local includes
 #include "navflex_base/planner_action.h"
 
-namespace navflex_costmap_nav {
+namespace navflex_costmap_nav
+{
 
 /**
  * PlannerAction Constructor
@@ -15,13 +16,14 @@ namespace navflex_costmap_nav {
  * Initializes the action handler and sets up publishers for goal visualization.
  */
 PlannerAction::PlannerAction(
-    const rclcpp_lifecycle::LifecycleNode::SharedPtr& node,
-    const std::string& name,
-    const navflex_utility::RobotInformation::ConstPtr& robot_info)
-    : NavflexActionBase(node, name, robot_info) {
+  const rclcpp_lifecycle::LifecycleNode::SharedPtr & node,
+  const std::string & name,
+  const navflex_utility::RobotInformation::ConstPtr & robot_info)
+: NavflexActionBase(node, name, robot_info)
+{
   // Setup publisher for goal visualization in rviz
   current_goal_pub_ = node->create_publisher<geometry_msgs::msg::PoseStamped>(
-      "~/current_goal", 1);
+    "~/current_goal", 1);
   // Setup publisher for the computed plan
   plan_publisher_ = node->create_publisher<nav_msgs::msg::Path>("plan", 1);
 }
@@ -69,12 +71,14 @@ PlannerAction::PlannerAction(
  * - Patience timeout mechanism prevents indefinite planning
  * - Empty paths are valid for goals already at start location
  */
-void PlannerAction::runImpl(const GoalHandlePtr& goal_handle,
-                            PlannerExecution& execution) {
-  const ActionToPose::Goal& goal = *goal_handle->get_goal();
+void PlannerAction::runImpl(
+  const GoalHandlePtr & goal_handle,
+  PlannerExecution & execution)
+{
+  const ActionToPose::Goal & goal = *goal_handle->get_goal();
 
   ActionToPose::Result::SharedPtr result =
-      std::make_shared<ActionToPose::Result>();
+    std::make_shared<ActionToPose::Result>();
   geometry_msgs::msg::PoseStamped start_pose;
 
   result->path.header.frame_id = robot_info_->getGlobalFrame();
@@ -87,22 +91,25 @@ void PlannerAction::runImpl(const GoalHandlePtr& goal_handle,
 
   if (use_start_pose) {
     start_pose = goal.start;
-    const geometry_msgs::msg::Point& p = start_pose.pose.position;
-    RCLCPP_DEBUG_STREAM(rclcpp::get_logger(name_), "Use the given start pose ("
-                                                       << p.x << ", " << p.y
-                                                       << "), " << p.z << ").");
+    const geometry_msgs::msg::Point & p = start_pose.pose.position;
+    RCLCPP_DEBUG_STREAM(
+      rclcpp::get_logger(name_), "Use the given start pose ("
+        << p.x << ", " << p.y
+        << "), " << p.z << ").");
   } else {
     // get the current robot pose
     if (!robot_info_->getRobotPose(start_pose)) {
-      RCLCPP_ERROR_STREAM(rclcpp::get_logger(name_),
-                          "Could not get the current robot pose! Canceling the action call.");
+      RCLCPP_ERROR_STREAM(
+        rclcpp::get_logger(name_),
+        "Could not get the current robot pose! Canceling the action call.");
       goal_handle->abort(result);
       return;
     } else {
-      const geometry_msgs::msg::Point& p = start_pose.pose.position;
-      RCLCPP_DEBUG_STREAM(rclcpp::get_logger(name_),
-                          "Got the current robot pose at ("
-                              << p.x << ", " << p.y << ", " << p.z << ").");
+      const geometry_msgs::msg::Point & p = start_pose.pose.position;
+      RCLCPP_DEBUG_STREAM(
+        rclcpp::get_logger(name_),
+        "Got the current robot pose at ("
+          << p.x << ", " << p.y << ", " << p.z << ").");
     }
   }
 
@@ -115,8 +122,9 @@ void PlannerAction::runImpl(const GoalHandlePtr& goal_handle,
     state_planning_input = execution.getState();
 
     if (goal_handle
-            ->is_canceling()) {  // action client requested to cancel the action
+      ->is_canceling())          // action client requested to cancel the action
                                  // and our server accepted that request
+    {
       planner_active = false;
       execution.stop();
       execution.join();
@@ -128,27 +136,31 @@ void PlannerAction::runImpl(const GoalHandlePtr& goal_handle,
 
     switch (state_planning_input) {
       case PlannerExecution::INITIALIZED:
-        RCLCPP_DEBUG_STREAM(rclcpp::get_logger(name_),
-                            "planner state: initialized");
+        RCLCPP_DEBUG_STREAM(
+          rclcpp::get_logger(name_),
+          "planner state: initialized");
         if (!execution.start(start_pose, goal.goal, tolerance)) {
-          RCLCPP_ERROR_STREAM(rclcpp::get_logger(name_),
-                              "Another thread is still planning! Canceling the action call.");
+          RCLCPP_ERROR_STREAM(
+            rclcpp::get_logger(name_),
+            "Another thread is still planning! Canceling the action call.");
           goal_handle->abort(result);
           planner_active = false;
         }
         break;
 
       case PlannerExecution::STARTED:
-        RCLCPP_DEBUG_STREAM(rclcpp::get_logger(name_),
-                            "planner state: started");
+        RCLCPP_DEBUG_STREAM(
+          rclcpp::get_logger(name_),
+          "planner state: started");
         break;
 
       case PlannerExecution::STOPPED:
-        RCLCPP_WARN(rclcpp::get_logger(name_),
-                    "[PlannerAction] STOPPED: start=(%.3f, %.3f) goal=(%.3f, %.3f) tolerance=%.3fm",
-                    start_pose.pose.position.x, start_pose.pose.position.y,
-                    goal.goal.pose.position.x, goal.goal.pose.position.y,
-                    tolerance);
+        RCLCPP_WARN(
+          rclcpp::get_logger(name_),
+          "[PlannerAction] STOPPED: start=(%.3f, %.3f) goal=(%.3f, %.3f) tolerance=%.3fm",
+          start_pose.pose.position.x, start_pose.pose.position.y,
+          goal.goal.pose.position.x, goal.goal.pose.position.y,
+          tolerance);
         result->outcome = ActionToPose::Result::STOPPED;
         result->message = "Planning has been stopped rigorously";
         goal_handle->abort(result);
@@ -156,10 +168,12 @@ void PlannerAction::runImpl(const GoalHandlePtr& goal_handle,
         break;
 
       case PlannerExecution::CANCELED:
-        RCLCPP_DEBUG_STREAM(rclcpp::get_logger(name_),
-                            "planner state: canceled");
-        RCLCPP_DEBUG_STREAM(rclcpp::get_logger(name_),
-                            "Global planner has been canceled successfully");
+        RCLCPP_DEBUG_STREAM(
+          rclcpp::get_logger(name_),
+          "planner state: canceled");
+        RCLCPP_DEBUG_STREAM(
+          rclcpp::get_logger(name_),
+          "Global planner has been canceled successfully");
         result->path.header.stamp = node_->now();
         result->outcome = ActionToPose::Result::CANCELED;
         result->message = "Global planner has been canceled";
@@ -167,15 +181,16 @@ void PlannerAction::runImpl(const GoalHandlePtr& goal_handle,
         planner_active = false;
         break;
 
-        // in progress
+      // in progress
       case PlannerExecution::PLANNING:
         if (execution.isPatienceExceeded()) {
-          RCLCPP_ERROR(rclcpp::get_logger(name_),
-                       "[PlannerAction] Single makePlan() call exceeded patience (%.1fs)! "
-                       "Aborting. start=(%.3f, %.3f) goal=(%.3f, %.3f)",
-                       execution.getPatience(),
-                       start_pose.pose.position.x, start_pose.pose.position.y,
-                       goal.goal.pose.position.x, goal.goal.pose.position.y);
+          RCLCPP_ERROR(
+            rclcpp::get_logger(name_),
+            "[PlannerAction] Single makePlan() call exceeded patience (%.1fs)! "
+            "Aborting. start=(%.3f, %.3f) goal=(%.3f, %.3f)",
+            execution.getPatience(),
+            start_pose.pose.position.x, start_pose.pose.position.y,
+            goal.goal.pose.position.x, goal.goal.pose.position.y);
           // Request execution to stop (sets should_exit_ + cancel_ flags).
           // makePlan may still be blocking in the plugin, but the action
           // server must not be held hostage — report failure now.
@@ -186,27 +201,29 @@ void PlannerAction::runImpl(const GoalHandlePtr& goal_handle,
           goal_handle->abort(result);
           planner_active = false;
         } else {
-          RCLCPP_DEBUG_THROTTLE(rclcpp::get_logger(name_), *node_->get_clock(),
-                                2000, "planner state: planning");
+          RCLCPP_DEBUG_THROTTLE(
+            rclcpp::get_logger(name_), *node_->get_clock(),
+            2000, "planner state: planning");
         }
         break;
 
-        // found a new plan
+      // found a new plan
       case PlannerExecution::FOUND_PLAN:
         // set time stamp to now
         result->path.header.stamp = node_->now();
         plan = execution.getPlan();
 
         RCLCPP_DEBUG_STREAM(
-            rclcpp::get_logger(name_),
-            "planner state: found plan with cost: " << execution.getCost());
+          rclcpp::get_logger(name_),
+          "planner state: found plan with cost: " << execution.getCost());
 
         if (plan.empty()) {
-          RCLCPP_ERROR(rclcpp::get_logger(name_),
-                       "[PlannerAction] EMPTY_PATH: start=(%.3f, %.3f) goal=(%.3f, %.3f) tolerance=%.3fm",
-                       start_pose.pose.position.x, start_pose.pose.position.y,
-                       goal.goal.pose.position.x, goal.goal.pose.position.y,
-                       tolerance);
+          RCLCPP_ERROR(
+            rclcpp::get_logger(name_),
+            "[PlannerAction] EMPTY_PATH: start=(%.3f, %.3f) goal=(%.3f, %.3f) tolerance=%.3fm",
+            start_pose.pose.position.x, start_pose.pose.position.y,
+            goal.goal.pose.position.x, goal.goal.pose.position.y,
+            tolerance);
           result->outcome = ActionToPose::Result::EMPTY_PATH;
           result->message = "Global planner returned an empty path";
           goal_handle->abort(result);
@@ -219,12 +236,13 @@ void PlannerAction::runImpl(const GoalHandlePtr& goal_handle,
         result->outcome = execution.getOutcome();
         result->message = execution.getMessage();
         result->cost = execution.getCost();
-        RCLCPP_INFO(rclcpp::get_logger(name_),
-                    "[PlannerAction] FOUND_PLAN: start=(%.3f, %.3f) goal=(%.3f, %.3f) "
-                    "tolerance=%.3fm poses=%zu cost=%.3f",
-                    start_pose.pose.position.x, start_pose.pose.position.y,
-                    goal.goal.pose.position.x, goal.goal.pose.position.y,
-                    tolerance, plan.size(), result->cost);
+        RCLCPP_INFO(
+          rclcpp::get_logger(name_),
+          "[PlannerAction] FOUND_PLAN: start=(%.3f, %.3f) goal=(%.3f, %.3f) "
+          "tolerance=%.3fm poses=%zu cost=%.3f",
+          start_pose.pose.position.x, start_pose.pose.position.y,
+          goal.goal.pose.position.x, goal.goal.pose.position.y,
+          tolerance, plan.size(), result->cost);
         plan_publisher_->publish(result->path);
         goal_handle->succeed(result);
 
@@ -233,41 +251,46 @@ void PlannerAction::runImpl(const GoalHandlePtr& goal_handle,
 
       // no plan found
       case PlannerExecution::NO_PLAN_FOUND:
-      {
-        const std::string execution_message = execution.getMessage();
-        RCLCPP_ERROR(rclcpp::get_logger(name_),
-                     "[PlannerAction] NO_PLAN_FOUND: start=(%.3f, %.3f) goal=(%.3f, %.3f) tolerance=%.3fm | %s",
-                     start_pose.pose.position.x, start_pose.pose.position.y,
-                     goal.goal.pose.position.x, goal.goal.pose.position.y,
-                     tolerance, execution_message.c_str());
-        result->outcome = execution.getOutcome();
-        result->message = execution_message;
-        goal_handle->abort(result);
-        planner_active = false;
-        break;
-      }
+        {
+          const std::string execution_message = execution.getMessage();
+          RCLCPP_ERROR(
+            rclcpp::get_logger(
+              name_),
+            "[PlannerAction] NO_PLAN_FOUND: start=(%.3f, %.3f) goal=(%.3f, %.3f) tolerance=%.3fm | %s",
+            start_pose.pose.position.x, start_pose.pose.position.y,
+            goal.goal.pose.position.x, goal.goal.pose.position.y,
+            tolerance, execution_message.c_str());
+          result->outcome = execution.getOutcome();
+          result->message = execution_message;
+          goal_handle->abort(result);
+          planner_active = false;
+          break;
+        }
 
       case PlannerExecution::MAX_RETRIES:
-      {
-        const std::string execution_message = execution.getMessage();
-        RCLCPP_ERROR(rclcpp::get_logger(name_),
-                     "[PlannerAction] MAX_RETRIES: start=(%.3f, %.3f) goal=(%.3f, %.3f) tolerance=%.3fm | %s",
-                     start_pose.pose.position.x, start_pose.pose.position.y,
-                     goal.goal.pose.position.x, goal.goal.pose.position.y,
-                     tolerance, execution_message.c_str());
-        result->outcome = execution.getOutcome();
-        result->message = execution_message;
-        goal_handle->abort(result);
-        planner_active = false;
-        break;
-      }
+        {
+          const std::string execution_message = execution.getMessage();
+          RCLCPP_ERROR(
+            rclcpp::get_logger(
+              name_),
+            "[PlannerAction] MAX_RETRIES: start=(%.3f, %.3f) goal=(%.3f, %.3f) tolerance=%.3fm | %s",
+            start_pose.pose.position.x, start_pose.pose.position.y,
+            goal.goal.pose.position.x, goal.goal.pose.position.y,
+            tolerance, execution_message.c_str());
+          result->outcome = execution.getOutcome();
+          result->message = execution_message;
+          goal_handle->abort(result);
+          planner_active = false;
+          break;
+        }
 
       case PlannerExecution::PAT_EXCEEDED:
-        RCLCPP_ERROR(rclcpp::get_logger(name_),
-                     "[PlannerAction] PAT_EXCEEDED: start=(%.3f, %.3f) goal=(%.3f, %.3f) tolerance=%.3fm",
-                     start_pose.pose.position.x, start_pose.pose.position.y,
-                     goal.goal.pose.position.x, goal.goal.pose.position.y,
-                     tolerance);
+        RCLCPP_ERROR(
+          rclcpp::get_logger(name_),
+          "[PlannerAction] PAT_EXCEEDED: start=(%.3f, %.3f) goal=(%.3f, %.3f) tolerance=%.3fm",
+          start_pose.pose.position.x, start_pose.pose.position.y,
+          goal.goal.pose.position.x, goal.goal.pose.position.y,
+          tolerance);
         result->outcome = ActionToPose::Result::PAT_EXCEEDED;
         result->message = "Global planner exceeded the patience time";
         goal_handle->abort(result);
@@ -275,28 +298,29 @@ void PlannerAction::runImpl(const GoalHandlePtr& goal_handle,
         break;
 
       case PlannerExecution::INTERNAL_ERROR:
-      {
-        const std::string execution_message = execution.getMessage();
-        RCLCPP_FATAL(rclcpp::get_logger(name_),
-                     "[PlannerAction] INTERNAL_ERROR: start=(%.3f, %.3f) goal=(%.3f, %.3f) | %s",
-                     start_pose.pose.position.x, start_pose.pose.position.y,
-                     goal.goal.pose.position.x, goal.goal.pose.position.y,
-                     execution_message.empty() ? "unknown error" : execution_message.c_str());
-        result->outcome = ActionToPose::Result::INTERNAL_ERROR;
-        result->message = "Internal planner error";
-        planner_active = false;
-        goal_handle->abort(result);
-        break;
-      }
+        {
+          const std::string execution_message = execution.getMessage();
+          RCLCPP_FATAL(
+            rclcpp::get_logger(name_),
+            "[PlannerAction] INTERNAL_ERROR: start=(%.3f, %.3f) goal=(%.3f, %.3f) | %s",
+            start_pose.pose.position.x, start_pose.pose.position.y,
+            goal.goal.pose.position.x, goal.goal.pose.position.y,
+            execution_message.empty() ? "unknown error" : execution_message.c_str());
+          result->outcome = ActionToPose::Result::INTERNAL_ERROR;
+          result->message = "Internal planner error";
+          planner_active = false;
+          goal_handle->abort(result);
+          break;
+        }
 
       default:
         std::ostringstream ss;
         ss << "Internal error: Unknown state in a move base flex planner "
-              "execution with the number: "
+          "execution with the number: "
            << static_cast<int>(state_planning_input);
         RCLCPP_FATAL_STREAM(rclcpp::get_logger(name_), ss.str());
-          result->outcome = ActionToPose::Result::INTERNAL_ERROR;
-          result->message = ss.str();
+        result->outcome = ActionToPose::Result::INTERNAL_ERROR;
+        result->message = ss.str();
         goal_handle->abort(result);
         planner_active = false;
     }
@@ -310,11 +334,13 @@ void PlannerAction::runImpl(const GoalHandlePtr& goal_handle,
   }  // while (planner_active && ros::ok())
 
   if (!planner_active) {
-    RCLCPP_DEBUG_STREAM(rclcpp::get_logger(name_),
-                        "\"" << name_ << "\" action ended properly.");
+    RCLCPP_DEBUG_STREAM(
+      rclcpp::get_logger(name_),
+      "\"" << name_ << "\" action ended properly.");
   } else {
-    RCLCPP_ERROR_STREAM(rclcpp::get_logger(name_),
-                        "\"" << name_ << "\" action has been stopped!");
+    RCLCPP_ERROR_STREAM(
+      rclcpp::get_logger(name_),
+      "\"" << name_ << "\" action has been stopped!");
   }
 }
 
@@ -369,8 +395,9 @@ void PlannerAction::runImpl(const GoalHandlePtr& goal_handle,
  * - Logs the source and destination frames in error messages for debugging
  */
 bool PlannerAction::transformPlanToGlobalFrame(
-    const std::vector<geometry_msgs::msg::PoseStamped>& plan,
-    std::vector<geometry_msgs::msg::PoseStamped>& global_plan) {
+  const std::vector<geometry_msgs::msg::PoseStamped> & plan,
+  std::vector<geometry_msgs::msg::PoseStamped> & global_plan)
+{
   global_plan.clear();
   global_plan.reserve(plan.size());
   std::vector<geometry_msgs::msg::PoseStamped>::const_iterator iter;
@@ -378,14 +405,15 @@ bool PlannerAction::transformPlanToGlobalFrame(
   for (iter = plan.begin(); iter != plan.end(); ++iter) {
     geometry_msgs::msg::PoseStamped global_pose;
     tf_success = navflex_utility::transformPose(
-        node_, robot_info_->getTransformListener(),
-        robot_info_->getGlobalFrame(), robot_info_->getTfTimeout(), *iter,
-        global_pose);
+      node_, robot_info_->getTransformListener(),
+      robot_info_->getGlobalFrame(), robot_info_->getTfTimeout(), *iter,
+      global_pose);
     if (!tf_success) {
-      RCLCPP_ERROR_STREAM(rclcpp::get_logger(name_),
-                          "Can not transform pose from the \""
-                              << iter->header.frame_id << "\" frame into the \""
-                              << robot_info_->getGlobalFrame() << "\" frame !");
+      RCLCPP_ERROR_STREAM(
+        rclcpp::get_logger(name_),
+        "Can not transform pose from the \""
+          << iter->header.frame_id << "\" frame into the \""
+          << robot_info_->getGlobalFrame() << "\" frame !");
       return false;
     }
     global_plan.push_back(global_pose);

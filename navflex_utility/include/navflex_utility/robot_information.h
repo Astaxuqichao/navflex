@@ -55,32 +55,31 @@ namespace navflex_utility
 
 class RobotInformation
 {
- public:
-
+public:
   typedef std::shared_ptr<RobotInformation> Ptr;
   typedef std::shared_ptr<const RobotInformation> ConstPtr;
 
   RobotInformation(
-      const rclcpp_lifecycle::LifecycleNode::SharedPtr& node,
-      const TFPtr &tf_buffer,
-      const std::string &global_frame,
-      const std::string &robot_frame,
-      const rclcpp::Duration &tf_timeout,
-      const std::string &odom_topic = "odom");
+    const rclcpp_lifecycle::LifecycleNode::SharedPtr & node,
+    const TFPtr & tf_buffer,
+    const std::string & global_frame,
+    const std::string & robot_frame,
+    const rclcpp::Duration & tf_timeout,
+    const std::string & odom_topic = "odom");
 
   /**
    * @brief Computes the current robot pose (robot_frame_) in the global frame (global_frame_).
    * @param robot_pose Reference to the robot_pose message object to be filled.
    * @return true, if the current robot pose could be computed, false otherwise.
    */
-  bool getRobotPose(geometry_msgs::msg::PoseStamped &robot_pose) const;
+  bool getRobotPose(geometry_msgs::msg::PoseStamped & robot_pose) const;
 
   /**
    * @brief Computes the current robot pose (robot_frame_) in the local frame (robot_frame_).
    * @param robot_pose Reference to the robot_pose message object to be filled.
    * @return true, if the current robot pose could be computed, false otherwise.
    */
-  bool getRobotLocalPose(geometry_msgs::msg::PoseStamped &robot_pose_localFrame) const;
+  bool getRobotLocalPose(geometry_msgs::msg::PoseStamped & robot_pose_localFrame) const;
 
 
   /**
@@ -88,7 +87,7 @@ class RobotInformation
    * @param robot_velocity Reference to the robot_velocity message object to be filled.
    * @return true, if the current robot velocity could be obtained, false otherwise.
    */
-  bool getRobotVelocity(geometry_msgs::msg::TwistStamped &robot_velocity) const;
+  bool getRobotVelocity(geometry_msgs::msg::TwistStamped & robot_velocity) const;
 
   /**
    * @brief Check whether the robot is stopped or not
@@ -98,15 +97,15 @@ class RobotInformation
    */
   bool isRobotStopped(double rot_stopped_velocity, double trans_stopped_velocity) const;
 
-  const std::string& getGlobalFrame() const;
+  const std::string & getGlobalFrame() const;
 
-  const std::string& getRobotFrame() const;
+  const std::string & getRobotFrame() const;
 
-  const TF& getTransformListener() const;
+  const TF & getTransformListener() const;
 
-  const rclcpp::Duration& getTfTimeout() const;
+  const rclcpp::Duration & getTfTimeout() const;
 
- private:
+private:
   rclcpp_lifecycle::LifecycleNode::SharedPtr node_;
 
   const TFPtr tf_buffer_;

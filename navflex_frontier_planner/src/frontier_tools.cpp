@@ -200,7 +200,7 @@ void FaelFrontierCore::configure(
   const rclcpp_lifecycle::LifecycleNode::WeakPtr & parent,
   const std::string & name,
   std::shared_ptr<tf2_ros::Buffer> tf,
-  std::shared_ptr<nav2_costmap_2d::Costmap2DROS> /*costmap_ros*/)
+  std::shared_ptr<nav2_costmap_2d::Costmap2DROS>/*costmap_ros*/)
 {
   node_ = parent;
   name_ = name;
@@ -512,7 +512,9 @@ void FaelFrontierCore::pointCloudCallback(const sensor_msgs::msg::PointCloud2::S
       static_cast<unsigned int>(std::max(0, early_stopping_)), false);
   }
 
-  const int clear_radius = std::max(1, static_cast<int>(std::ceil(robot_clear_radius_ / resolution_)));
+  const int clear_radius = std::max(
+    1, static_cast<int>(std::ceil(
+      robot_clear_radius_ / resolution_)));
   for (int dx = -clear_radius; dx <= clear_radius; ++dx) {
     for (int dy = -clear_radius; dy <= clear_radius; ++dy) {
       for (int dz = -clear_radius; dz <= clear_radius; ++dz) {
@@ -521,7 +523,9 @@ void FaelFrontierCore::pointCloudCallback(const sensor_msgs::msg::PointCloud2::S
           sensor.y + static_cast<double>(dy) * resolution_,
           sensor.z + static_cast<double>(dz) * resolution_);
         if (Point3{point.x(), point.y(), point.z()}.distance(sensor) <= robot_clear_radius_) {
-          map_state_->map->setOccupancy(point, map_state_->map->getClampingThresMin(), insert_depth_);
+          map_state_->map->setOccupancy(
+            point, map_state_->map->getClampingThresMin(),
+            insert_depth_);
         }
       }
     }
@@ -602,7 +606,10 @@ bool FaelFrontierCore::isNearOccupied(const Point3 & point, double radius) const
           point.x + static_cast<double>(dx) * resolution_,
           point.y + static_cast<double>(dy) * resolution_,
           point.z + static_cast<double>(dz) * resolution_);
-        if (map_state_->map->isOccupied(p, insert_depth_) && fromUfoPoint(p).distance(point) <= radius) {
+        if (map_state_->map->isOccupied(
+            p,
+            insert_depth_) && fromUfoPoint(p).distance(point) <= radius)
+        {
           return true;
         }
       }
@@ -621,7 +628,10 @@ bool FaelFrontierCore::isNearUnknown(const Point3 & point, double radius) const
           point.x + static_cast<double>(dx) * resolution_,
           point.y + static_cast<double>(dy) * resolution_,
           point.z + static_cast<double>(dz) * resolution_);
-        if (map_state_->map->isUnknown(p, insert_depth_) && fromUfoPoint(p).distance(point) <= radius) {
+        if (map_state_->map->isUnknown(
+            p,
+            insert_depth_) && fromUfoPoint(p).distance(point) <= radius)
+        {
           return true;
         }
       }
@@ -638,7 +648,7 @@ bool FaelFrontierCore::hasFreeVoxelNearHeight(const Point3 & point) const
   for (double dz = z_min; dz <= z_max + 1e-6; dz += z_step) {
     Point3 sample{point.x, point.y, point.z + dz};
     if (map_state_->map->isFree(toUfoPoint(sample), insert_depth_) &&
-        !isNearOccupied(sample, robot_clear_radius_))
+      !isNearOccupied(sample, robot_clear_radius_))
     {
       return true;
     }
@@ -957,15 +967,17 @@ bool FaelFrontierCore::updateTopologyMap(
     if (nodes.size() >= max_topology_nodes) {
       nodes.pop_back();
     }
-    nodes.push_back(TopologyNode{
-      update_center, std::max(robot_clear_radius_, topology_local_min_clearance_), {}});
+    nodes.push_back(
+      TopologyNode{
+        update_center, std::max(robot_clear_radius_, topology_local_min_clearance_), {}});
     robot_anchor_added = true;
   } else if (nearest_robot_node > std::max(resolution_, topology_local_node_spacing_) &&
     map_state_->map->isFree(toUfoPoint(update_center), insert_depth_) &&
     nodes.size() < max_topology_nodes)
   {
-    nodes.push_back(TopologyNode{
-      update_center, std::max(robot_clear_radius_, topology_local_min_clearance_), {}});
+    nodes.push_back(
+      TopologyNode{
+        update_center, std::max(robot_clear_radius_, topology_local_min_clearance_), {}});
     robot_anchor_added = true;
   }
   const auto node_selection_done = std::chrono::steady_clock::now();
@@ -1104,7 +1116,7 @@ std::vector<Point3> FaelFrontierCore::searchTopologyPath(
       return true;
     };
 
-  auto attach_virtual_node = [&] (
+  auto attach_virtual_node = [&](
     std::size_t index, const Point3 & point, bool is_start,
     std::size_t & nearby_count, std::size_t & blocked_count)
     {
@@ -1286,7 +1298,8 @@ double FaelFrontierCore::unknownGainBeyondFrontier(
 
 void FaelFrontierCore::frontierSearch(const Point3 & current)
 {
-  map_state_->known_cell_codes.insert(map_state_->changed_cell_codes.begin(), map_state_->changed_cell_codes.end());
+  map_state_->known_cell_codes.insert(
+    map_state_->changed_cell_codes.begin(), map_state_->changed_cell_codes.end());
   findLocalFrontiers(current);
   updateGlobalFrontiers(current);
   map_state_->changed_cell_codes.clear();
@@ -1299,10 +1312,22 @@ void FaelFrontierCore::findLocalFrontiers(const Point3 & current)
   FrontierSet search_codes = map_state_->changed_cell_codes;
   for (const auto & code : map_state_->changed_cell_codes) {
     const auto center = map_state_->map->toCoord(code.toKey(), code.getDepth());
-    search_codes.insert(map_state_->map->toCode(center.x() - resolution_, center.y(), center.z(), code.getDepth()));
-    search_codes.insert(map_state_->map->toCode(center.x() + resolution_, center.y(), center.z(), code.getDepth()));
-    search_codes.insert(map_state_->map->toCode(center.x(), center.y() - resolution_, center.z(), code.getDepth()));
-    search_codes.insert(map_state_->map->toCode(center.x(), center.y() + resolution_, center.z(), code.getDepth()));
+    search_codes.insert(
+      map_state_->map->toCode(
+        center.x() - resolution_, center.y(), center.z(),
+        code.getDepth()));
+    search_codes.insert(
+      map_state_->map->toCode(
+        center.x() + resolution_, center.y(), center.z(),
+        code.getDepth()));
+    search_codes.insert(
+      map_state_->map->toCode(
+        center.x(), center.y() - resolution_, center.z(),
+        code.getDepth()));
+    search_codes.insert(
+      map_state_->map->toCode(
+        center.x(), center.y() + resolution_, center.z(),
+        code.getDepth()));
   }
 
   for (const auto & code : search_codes) {
@@ -1332,15 +1357,15 @@ void FaelFrontierCore::updateGlobalFrontiers(const Point3 & current)
     const double dist_xy = point.distanceXY(current);
     if (dist_xy < max_range_ + 1.0) {
       if (global_frontier_revalidate_max_cells_ > 0 &&
-          revalidated >= global_frontier_revalidate_max_cells_)
+        revalidated >= global_frontier_revalidate_max_cells_)
       {
         updated_frontiers.insert(code);
         continue;
       }
       ++revalidated;
       if (dist_xy > 1e-6 &&
-          std::fabs(point.z - current.z) / dist_xy < slope_limit &&
-          isFrontier(code))
+        std::fabs(point.z - current.z) / dist_xy < slope_limit &&
+        isFrontier(code))
       {
         updated_frontiers.insert(code);
       }
@@ -1349,7 +1374,8 @@ void FaelFrontierCore::updateGlobalFrontiers(const Point3 & current)
     }
   }
 
-  updated_frontiers.insert(map_state_->local_frontier_cells.begin(), map_state_->local_frontier_cells.end());
+  updated_frontiers.insert(
+    map_state_->local_frontier_cells.begin(), map_state_->local_frontier_cells.end());
   map_state_->global_frontier_cells = std::move(updated_frontiers);
 }
 
@@ -1378,7 +1404,7 @@ std::vector<Point3> FaelFrontierCore::compactFrontiersForAttachment(
     const auto cell = toGridCell(frontier, cell_size);
     const auto existing = representatives.find(cell);
     if (existing == representatives.end() ||
-        frontier.distanceXY(current) < existing->second.distanceXY(current))
+      frontier.distanceXY(current) < existing->second.distanceXY(current))
     {
       representatives[cell] = frontier;
     }
@@ -1471,7 +1497,7 @@ std::vector<Candidate> FaelFrontierCore::attachFrontiers(
   }
   for (const auto & candidate : map_state_->candidates) {
     if (candidate.point.distanceXY(current) < local_range_ + attach_range &&
-        map_state_->map->isFree(toUfoPoint(candidate.point), insert_depth_))
+      map_state_->map->isFree(toUfoPoint(candidate.point), insert_depth_))
     {
       representative_points.push_back(candidate.point);
     }
@@ -1646,14 +1672,16 @@ std::vector<Candidate> FaelFrontierCore::attachFrontiers(
     if (!too_close_to_better) {
       filtered.push_back(candidate);
       if (max_candidate_count_ > 0 &&
-          filtered.size() >= static_cast<std::size_t>(max_candidate_count_))
+        filtered.size() >= static_cast<std::size_t>(max_candidate_count_))
       {
         break;
       }
     }
   }
 
-  if (min_candidate_count_ > 0 && filtered.size() < static_cast<std::size_t>(min_candidate_count_)) {
+  if (min_candidate_count_ > 0 &&
+    filtered.size() < static_cast<std::size_t>(min_candidate_count_))
+  {
     for (const auto & candidate : candidates) {
       const auto duplicate = std::find_if(
         filtered.begin(), filtered.end(),
@@ -1668,7 +1696,7 @@ std::vector<Candidate> FaelFrontierCore::attachFrontiers(
         break;
       }
       if (max_candidate_count_ > 0 &&
-          filtered.size() >= static_cast<std::size_t>(max_candidate_count_))
+        filtered.size() >= static_cast<std::size_t>(max_candidate_count_))
       {
         break;
       }
@@ -1720,16 +1748,20 @@ std::vector<Candidate> FaelFrontierCore::selectCandidates(
     map_state_->has_cached_candidates &&
     current.distanceXY(map_state_->candidates_origin) <= cache_robot_move_threshold_;
   if (!force_refresh && reuse_cached_candidates_ && can_reuse_by_motion &&
-      (can_reuse_by_map_revision || can_reuse_by_age))
+    (can_reuse_by_map_revision || can_reuse_by_age))
   {
-    const Candidate * selected = map_state_->candidates.empty() ? nullptr : &map_state_->candidates.front();
+    const Candidate * selected =
+      map_state_->candidates.empty() ? nullptr : &map_state_->candidates.front();
     publishCandidates(map_state_->candidates, selected);
     publishTopology(map_state_->candidates, current, selected, false);
     if (selected && selected_candidate_pub_ && selected_candidate_pub_->is_activated()) {
       std_msgs::msg::Header header;
       header.stamp = clock_->now();
       header.frame_id = frame_id_;
-      safePublish(selected_candidate_pub_, makePose(selected->point, header), logger_, "selected_candidate");
+      safePublish(
+        selected_candidate_pub_, makePose(
+          selected->point,
+          header), logger_, "selected_candidate");
     }
     RCLCPP_INFO(
       logger_,
@@ -1798,7 +1830,9 @@ std::vector<Candidate> FaelFrontierCore::selectCandidates(
     std_msgs::msg::Header header;
     header.stamp = clock_->now();
     header.frame_id = frame_id_;
-    safePublish(selected_candidate_pub_, makePose(candidates.front().point, header), logger_, "selected_candidate");
+    safePublish(
+      selected_candidate_pub_, makePose(
+        candidates.front().point, header), logger_, "selected_candidate");
   }
   RCLCPP_INFO(
     logger_, "[%s] selected candidate x=%.2f y=%.2f z=%.2f score=%.2f attached_frontiers=%zu",
@@ -1928,7 +1962,10 @@ void FaelFrontierCore::publishSelection(
     std_msgs::msg::Header header;
     header.stamp = clock_->now();
     header.frame_id = frame_id_;
-    safePublish(selected_candidate_pub_, makePose(selected.point, header), logger_, "selected_candidate");
+    safePublish(
+      selected_candidate_pub_, makePose(
+        selected.point,
+        header), logger_, "selected_candidate");
   }
 }
 
@@ -2152,7 +2189,7 @@ void FaelFrontierCore::publishTopology(
 void FaelFrontierCore::publishMapClouds()
 {
   if (!publish_map_clouds_ || !occupied_map_pub_ || !free_map_pub_ ||
-      !occupied_map_pub_->is_activated() || !free_map_pub_->is_activated())
+    !occupied_map_pub_->is_activated() || !free_map_pub_->is_activated())
   {
     return;
   }

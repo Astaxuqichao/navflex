@@ -80,24 +80,32 @@ public:
     BT::PortsList ports = providedBasicPorts({});
 
     // ── Inputs (aligned with ComputePathToPose.action goal) ──────────────
-    ports.insert(BT::InputPort<geometry_msgs::msg::PoseStamped>(
-      "goal", "Destination pose to plan to"));
-    ports.insert(BT::InputPort<geometry_msgs::msg::PoseStamped>(
-      "start", "Override start pose (only used when use_start=true)"));
-    ports.insert(BT::InputPort<std::string>(
-      "planner_id", "GridBased", "Planner plugin ID"));
-    ports.insert(BT::InputPort<bool>(
-      "use_start", "If true, use the start port instead of current robot pose"));
-    ports.insert(BT::InputPort<double>(
-      "tolerance", "Goal tolerance in metres"));
+    ports.insert(
+      BT::InputPort<geometry_msgs::msg::PoseStamped>(
+        "goal", "Destination pose to plan to"));
+    ports.insert(
+      BT::InputPort<geometry_msgs::msg::PoseStamped>(
+        "start", "Override start pose (only used when use_start=true)"));
+    ports.insert(
+      BT::InputPort<std::string>(
+        "planner_id", "GridBased", "Planner plugin ID"));
+    ports.insert(
+      BT::InputPort<bool>(
+        "use_start", "If true, use the start port instead of current robot pose"));
+    ports.insert(
+      BT::InputPort<double>(
+        "tolerance", "Goal tolerance in metres"));
 
     // ── Outputs ───────────────────────────────────────────────────────────
-    ports.insert(BT::OutputPort<nav_msgs::msg::Path>(
-      "path", "Computed global path"));
-    ports.insert(BT::OutputPort<uint8_t>(
-      "outcome", "Result outcome code (0=SUCCESS, 50=FAILURE, 51=CANCELED, ...)"));
-    ports.insert(BT::OutputPort<std::string>(
-      "message", "Human-readable result message"));
+    ports.insert(
+      BT::OutputPort<nav_msgs::msg::Path>(
+        "path", "Computed global path"));
+    ports.insert(
+      BT::OutputPort<uint8_t>(
+        "outcome", "Result outcome code (0=SUCCESS, 50=FAILURE, 51=CANCELED, ...)"));
+    ports.insert(
+      BT::OutputPort<std::string>(
+        "message", "Human-readable result message"));
 
     return ports;
   }
