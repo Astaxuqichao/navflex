@@ -1,0 +1,3 @@
+navflex_nav:
+  ros__parameters:
+    navigation_type: costmap

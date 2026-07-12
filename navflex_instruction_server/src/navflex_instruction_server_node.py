@@ -330,7 +330,7 @@ class NavflexInstructionServer(Node):
 
         goal = DummyBehavior.Goal()
         goal.command = String(data=parsed.behavior_command)
-        # navflex_costmap_nav extends this action server code to use goal.behavior
+        # navflex_nav extends this action server code to use goal.behavior
         # when available in the local nav2_msgs build. Set it defensively.
         if hasattr(goal, 'behavior'):
             goal.behavior = self.behavior_id

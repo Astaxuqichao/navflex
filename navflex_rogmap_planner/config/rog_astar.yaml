@@ -1,0 +1,11 @@
+navflex_planner_server:
+  ros__parameters:
+    planner_plugins: [RogAStar]
+    RogAStar:
+      plugin: navflex_rogmap_planner/RogAStarPlanner
+      map_voxel_num: [200, 200, 100]
+      allow_diagonal: true
+      heuristic_type: 2
+      use_inflated_map: true
+      unknown_as_obstacle: false
+      max_planning_time: 1.0

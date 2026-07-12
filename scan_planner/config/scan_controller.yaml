@@ -1,0 +1,25 @@
+navflex_controller_server:
+  ros__parameters:
+    controller_plugins: [ScanController]
+    ScanController:
+      plugin: scan_planner/ScanController
+      footprint_type: sphere
+      footprint_offset: [0.0, 0.0, 0.0]
+      footprint_radius: 0.35
+      footprint_height: 0.7
+      footprint_size: [0.7, 0.5, 0.4]
+      front_sphere_offset: [0.25, 0.0, 0.0]
+      front_sphere_radius: 0.3
+      rear_sphere_offset: [-0.25, 0.0, 0.0]
+      rear_sphere_radius: 0.3
+      footprint_safety_margin: 0.0
+      planning_horizon: 5.0
+      sample_distance: 0.1
+      lookahead_time: 0.8
+      control_lookahead_time: 0.15
+      max_velocity: 0.8
+      max_vertical_velocity: 0.4
+      max_acceleration: 1.5
+      max_yaw_rate: 1.0
+      kp_position: 1.5
+      kp_yaw: 2.0

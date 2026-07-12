@@ -23,7 +23,7 @@
   <exec_depend>navflex_bringup</exec_depend>
   <exec_depend>navflex_bt_nodes</exec_depend>
   <exec_depend>navflex_cmdbehavior</exec_depend>
-  <exec_depend>navflex_costmap_nav</exec_depend>
+  <exec_depend>navflex_nav</exec_depend>
   <exec_depend>navflex_frontier_planner</exec_depend>
   <exec_depend>nav2_route</exec_depend>
 

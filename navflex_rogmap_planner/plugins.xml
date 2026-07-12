@@ -1,0 +1,8 @@
+<library path="navflex_rogmap_planner">
+  <class
+    name="navflex_rogmap_planner/RogAStarPlanner"
+    type="navflex_rogmap_planner::RogAStarPlanner"
+    base_class_type="navflex_rogmap_core::GlobalPlanner">
+    <description>ROG-Map three-dimensional grid A-star planner.</description>
+  </class>
+</library>

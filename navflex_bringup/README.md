@@ -5,7 +5,7 @@
 - 本地轻量仿真：`omni_fake_node` + `simulation_lidar`
 - TurtleBot3 Waffle Pi + OpenMANIPULATOR-X Gazebo 仿真
 
-导航栈本身由 `navflex_costmap_nav`、`bt_navigator`、`velocity_smoother` 和 lifecycle manager 组成。
+导航栈本身由 `navflex_nav`、`bt_navigator`、`velocity_smoother` 和 lifecycle manager 组成。
 
 ## 依赖
 
@@ -37,44 +37,60 @@ sudo apt install \
 
 ### 工作区源码依赖
 
-当前工作区需要包含这些源码包：
+Navflex 必须使用个人维护的 Nav2 Humble 分支和开源 STVL。在工作区根目录执行：
+
+```bash
+git clone --branch humble --single-branch \
+  https://github.com/Astaxuqichao/navigation2.git navigation2
+git clone --branch humble --single-branch \
+  https://github.com/SteveMacenski/spatio_temporal_voxel_layer.git \
+  spatio_temporal_voxel_layer
+git clone https://github.com/Astaxuqichao/navflex.git navflex
+```
+
+不能用 apt 安装的标准 Nav2 替代 `Astaxuqichao/navigation2`，因为 Navflex 使用了
+扩展后的 `nav2_msgs/action/FollowPath.action`。当前工作区需要包含这些源码包：
 
 | 路径 | 作用 |
 | --- | --- |
-| `src/navflex` | Navflex 核心包、BT 节点、仿真节点和 bringup |
-| `src/navigation2` | 本项目使用的 Nav2 源码版本，包含改动后的 `nav2_msgs/action/FollowPath.action` |
-| `src/spatio_temporal_voxel_layer` | costmap 3D/点云障碍层 |
-| `src/turtlebot3` | TurtleBot3 基础包 |
-| `src/turtlebot3_manipulation` | TurtleBot3 机械臂相关包 |
-| `src/turtlebot3_simulations` | TurtleBot3 / TB3 manipulation Gazebo 仿真包 |
-| `src/turtlebot3_msgs` | TurtleBot3 消息包 |
-| `src/aws-robomaker-small-house-world-ros2` | AWS Small House Gazebo world、模型和配套地图 |
+| `navflex` | Navflex 核心包、BT 节点、仿真节点和 bringup |
+| `navigation2` | `Astaxuqichao/navigation2` 的 `humble` 分支，包含改动后的 `FollowPath.action` |
+| `spatio_temporal_voxel_layer` | `SteveMacenski/spatio_temporal_voxel_layer` 的 `humble` 分支 |
+| `turtlebot3` | TurtleBot3 基础包 |
+| `turtlebot3_manipulation` | TurtleBot3 机械臂相关包 |
+| `turtlebot3_simulations` | TurtleBot3 / TB3 manipulation Gazebo 仿真包 |
+| `turtlebot3_msgs` | TurtleBot3 消息包 |
+| `aws-robomaker-small-house-world-ros2` | AWS Small House Gazebo world、模型和配套地图 |
 
 如果从新工作区准备依赖，建议使用 `rosdep` 补齐系统包：
 
 ```bash
-cd <workspace>
+cd ~/ros2/nav_ws
+source /opt/ros/humble/setup.bash
 rosdep update
-rosdep install --from-paths src --ignore-src -r -y
+rosdep install --from-paths \
+  navigation2 spatio_temporal_voxel_layer navflex \
+  --ignore-src -r -y --rosdistro humble
 ```
 
 ## 编译
 
-工作区默认不编译 `src/FAEL`。FAEL 是 ROS 1 参考实现，当前 ROS 2
+工作区默认不编译 `navflex/FAEL`。FAEL 是 ROS 1 参考实现，当前 ROS 2
 工作区只将其作为算法参考；仓库根目录已放置：
 
 ```text
-src/FAEL/COLCON_IGNORE
+navflex/FAEL/COLCON_IGNORE
 ```
 
 因此直接执行 `colcon build` 时会自动跳过 FAEL，不需要额外
 `--packages-ignore` 参数。如果确实需要单独处理 FAEL，请先移除或临时改名
-`src/FAEL/COLCON_IGNORE`，并使用对应的 ROS 1/catkin 环境。
+`navflex/FAEL/COLCON_IGNORE`，并使用对应的 ROS 1/catkin 环境。
 
 因为 `FollowPath.action` 已扩展了 `xy_goal_tolerance` 和 `yaw_goal_tolerance`，修改 action 后需要重编依赖它的包。推荐直接编译整个工作区：
 
 ```bash
-cd <workspace>
+cd ~/ros2/nav_ws
+source /opt/ros/humble/setup.bash
 colcon build --symlink-install --cmake-args -DCMAKE_BUILD_TYPE=Release
 source install/setup.bash
 ```
@@ -84,7 +100,7 @@ source install/setup.bash
 ```bash
 colcon build --packages-select \
   nav2_msgs nav2_behavior_tree nav2_bt_navigator \
-  navflex_costmap_nav navflex_bt_nodes navflex_bt_navigator \
+  navflex_nav navflex_bt_nodes navflex_bt_navigator \
   navflex_frontier_planner navflex_bringup omni_fake_node simulation_lidar
 source install/setup.bash
 ```
@@ -269,7 +285,7 @@ ros2 launch navflex_bringup navflex_bringup_launch.py
 | `bt_params_file` | `navflex_bt_navigator/params/navflex_bt_navigator.yaml` | BT Navigator 参数 |
 | `default_nav_to_pose_bt_xml` | `navflex_bt_navigator/behavior_trees/test_bt_navigator.xml` | 默认行为树 |
 | `autostart` | `true` | 自动激活 lifecycle 节点 |
-| `use_respawn` | `False` | 非 composition 模式下崩溃重启 `navflex_costmap_nav` |
+| `use_respawn` | `False` | 非 composition 模式下崩溃重启 `navflex_nav` |
 | `use_composition` | `true` | 使用组件容器启动核心节点 |
 | `container_name` | `navflex_container` | 组件容器名称 |
 | `log_level` | `info` | 日志等级 |
@@ -279,7 +295,7 @@ ros2 launch navflex_bringup navflex_bringup_launch.py
 
 启动后包含：
 
-- `navflex_costmap_nav`
+- `navflex_nav`
 - `bt_navigator`
 - `velocity_smoother`
 - `lifecycle_manager_navflex`
@@ -287,7 +303,7 @@ ros2 launch navflex_bringup navflex_bringup_launch.py
 
 lifecycle 激活顺序：
 
-1. `navflex_costmap_nav`
+1. `navflex_nav`
 2. `route_server`，仅 `use_route_server:=True`
 3. `velocity_smoother`
 4. `bt_navigator`
@@ -341,7 +357,7 @@ Navflex 使用自定义 `NavflexExePathAction` 调用 `/follow_path`。`FollowPa
 - `xy_goal_tolerance`
 - `yaw_goal_tolerance`
 
-如果这两个字段都为 `0.0`，`navflex_costmap_nav` 会使用参数文件中的：
+如果这两个字段都为 `0.0`，`navflex_nav` 会使用参数文件中的：
 
 - `default_xy_goal_tolerance`
 - `default_yaw_goal_tolerance`
@@ -380,7 +396,7 @@ ros2 topic echo /geojson_marker_array --once
 
 ```bash
 ros2 topic echo /clock
-ros2 param get /navflex_costmap_nav use_sim_time
+ros2 param get /navflex_nav use_sim_time
 ros2 param get /bt_navigator use_sim_time
 ```
 
@@ -400,10 +416,10 @@ ros2 topic echo /clock
 
 ### `bt_navigator` 找不到 action server
 
-确认 `navflex_costmap_nav` 已激活，并且 action server 存在：
+确认 `navflex_nav` 已激活，并且 action server 存在：
 
 ```bash
-ros2 lifecycle get /navflex_costmap_nav
+ros2 lifecycle get /navflex_nav
 ros2 action list | grep -E 'compute_path_to_pose|follow_path|behavior_action'
 ```
 

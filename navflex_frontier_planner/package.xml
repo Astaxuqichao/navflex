@@ -3,7 +3,7 @@
 <package format="3">
   <name>navflex_frontier_planner</name>
   <version>0.1.0</version>
-  <description>Frontier candidate selection and planning plugins for navflex_costmap_nav.</description>
+  <description>Frontier candidate selection and planning plugins for navflex_nav.</description>
   <maintainer email="todo@example.com">navflex</maintainer>
   <license>Apache-2.0</license>
 

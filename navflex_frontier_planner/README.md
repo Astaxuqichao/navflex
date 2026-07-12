@@ -1,7 +1,7 @@
 # navflex_frontier_planner
 
 `navflex_frontier_planner` provides two ROS 2 `nav2_core::GlobalPlanner`
-plugins for autonomous exploration in `navflex_costmap_nav`.
+plugins for autonomous exploration in `navflex_nav`.
 
 The exploration logic is based on FAEL-style frontier reasoning, not on a
 Nav2 costmap:
@@ -181,7 +181,7 @@ The omni bringup parameter file `nav2_params.yaml` therefore sets
 
 ## Trigger With ROS 2 Action
 
-The planners are triggered through the `navflex_costmap_nav` planning action:
+The planners are triggered through the `navflex_nav` planning action:
 
 ```text
 /compute_path_to_pose
@@ -272,7 +272,7 @@ It publishes:
 /frontier_exploration/topology_map
 ```
 
-If `use_start` is `false`, `navflex_costmap_nav` uses the current robot pose as
+If `use_start` is `false`, `navflex_nav` uses the current robot pose as
 the planning start. If you set `use_start: true`, fill the `start` field with a
 valid pose in `frame_id`.
 

@@ -1,0 +1,25 @@
+<?xml version="1.0"?>
+<package format="3">
+  <name>navflex_rog_map</name>
+  <version>0.1.0</version>
+  <description>ROG-Map inspired global/local 3D occupancy map with local ESDF for Navflex.</description>
+  <maintainer email="todo@example.com">navflex</maintainer>
+  <license>GPL-3.0-or-later</license>
+  <buildtool_depend>ament_cmake</buildtool_depend>
+  <depend>geometry_msgs</depend>
+  <depend>eigen</depend>
+  <depend>nav2_lifecycle_manager</depend>
+  <depend>nav2_util</depend>
+  <depend>pcl_conversions</depend>
+  <depend>libpcl-all-dev</depend>
+  <depend>rclcpp</depend>
+  <depend>rclcpp_components</depend>
+  <depend>rclcpp_lifecycle</depend>
+  <depend>sensor_msgs</depend>
+  <depend>tf2</depend>
+  <depend>tf2_ros</depend>
+  <depend>yaml-cpp</depend>
+  <test_depend>ament_lint_auto</test_depend>
+  <test_depend>ament_lint_common</test_depend>
+  <export><build_type>ament_cmake</build_type></export>
+</package>

@@ -17,22 +17,7 @@ navflex_controller_server:
     failure_tolerance: 0.3
     default_xy_goal_tolerance: 0.05
     default_yaw_goal_tolerance: 0.05
-    controller_plugins: ["FollowPath", "ScanController"]
-
-    ScanController:
-      plugin: "scan_planner/ScanController"
-      point_cloud_topic: "/scan_cloud"
-      voxel_resolution: 0.2
-      map_range: 12.0
-      inflation_radius: 0.35
-      planning_horizon: 5.0
-      sample_distance: 0.1
-      max_velocity: 0.8
-      max_vertical_velocity: 0.4
-      max_acceleration: 1.5
-      max_yaw_rate: 1.0
-      kp_position: 1.5
-      kp_yaw: 2.0
+    controller_plugins: ["FollowPath"]
 
     # DWB parameters
     # FollowPath:

@@ -301,7 +301,7 @@ colcon build --symlink-install --packages-select navflex_instruction_server
 
 ## 设计边界
 
-这个包是“指令路由层”：负责抽象文本解析、能力发现和调用编排。真正的导航行为仍由 `navflex_costmap_nav`、`navflex_cmdbehavior` 和 Nav2 插件完成。
+这个包是“指令路由层”：负责抽象文本解析、能力发现和调用编排。真正的导航行为仍由 `navflex_nav`、`navflex_cmdbehavior` 和 Nav2 插件完成。
 
 ## 语义任务与 VLN 桥接
 

@@ -1,0 +1,19 @@
+<?xml version="1.0"?>
+<package format="3">
+  <name>navflex_rogmap_core</name>
+  <version>0.1.0</version>
+  <description>Core interfaces for ROG-Map based Navflex 3D navigation.</description>
+  <maintainer email="todo@example.com">navflex</maintainer>
+  <license>Apache-2.0</license>
+  <buildtool_depend>ament_cmake</buildtool_depend>
+  <depend>geometry_msgs</depend>
+  <depend>nav_msgs</depend>
+  <depend>nav2_core</depend>
+  <depend>navflex_rog_map</depend>
+  <depend>rclcpp</depend>
+  <depend>rclcpp_lifecycle</depend>
+  <depend>tf2_ros</depend>
+  <test_depend>ament_lint_auto</test_depend>
+  <test_depend>ament_lint_common</test_depend>
+  <export><build_type>ament_cmake</build_type></export>
+</package>

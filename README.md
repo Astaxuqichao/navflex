@@ -9,7 +9,7 @@ Navflex 是基于 ROS 2 Humble 和 Nav2 的导航扩展包集合。它把 costma
 | 包名 | 功能 |
 | --- | --- |
 | `navflex_bringup` | 统一启动包，维护 launch、地图、参数、RViz 配置；提供本地仿真、TB3 manipulation Gazebo 仿真和 Navflex 导航栈启动入口 |
-| `navflex_costmap_nav` | 核心导航服务端；在一个 lifecycle 节点内管理 global/local costmap，并提供 `/compute_path_to_pose`、`/follow_path`、`/behavior_action` |
+| `navflex_nav` | 核心导航服务端；在一个 lifecycle 节点内管理 global/local costmap，并提供 `/compute_path_to_pose`、`/follow_path`、`/behavior_action` |
 | `navflex_bt_navigator` | BT Navigator 封装包，提供 Navflex 默认行为树 XML 和 BT Navigator 参数 |
 | `navflex_bt_nodes` | 自定义 BT 节点，包括 GetPath、ExePath、Recovery；`NavflexExePathAction` 支持运行中路径更新和 FollowPath 容差传递 |
 | `navflex_cmdbehavior` | Nav2 behavior 插件，提供 `rotate`、`linear`、`wait` 等简单恢复/动作命令 |
@@ -20,9 +20,9 @@ Navflex 是基于 ROS 2 Humble 和 Nav2 的导航扩展包集合。它把 costma
 | `simulation_lidar` | 基于 OccupancyGrid 地图射线投射的 2D 仿真激光雷达，发布 `/scan` 和 `/scan_cloud` |
 | `rcl_logging_spdlog_rotating` | 自定义 ROS 2 spdlog 滚动日志后端 |
 
-## navflex_costmap_nav 设计
+## navflex_nav 设计
 
-`navflex_costmap_nav` 是 Navflex 的核心导航执行层。它没有直接复用 Nav2 的整套
+`navflex_nav` 是 Navflex 的核心导航执行层。它没有直接复用 Nav2 的整套
 planner/controller/behavior server 进程组合，而是在一个 `CostmapNavNode`
 lifecycle 节点里统一管理 costmap、插件服务器和 action 执行，从而让 Navflex 可以在
 同一套生命周期下协调规划、控制、行为恢复和代价地图查询。
@@ -60,38 +60,88 @@ CostmapNavNode (nav2_util::LifecycleNode)
   `nav_msgs/Path` 交给 `FollowPath` 执行。
 
 更完整的类关系、线程模型和回调链见
-[navflex_costmap_nav/docs/ARCHITECTURE.md](navflex_costmap_nav/docs/ARCHITECTURE.md)。
+[navflex_nav/docs/ARCHITECTURE.md](navflex_nav/docs/ARCHITECTURE.md)。
+
+## 获取源码
+
+Navflex 依赖修改过接口的 Nav2，因此必须使用
+[`Astaxuqichao/navigation2`](https://github.com/Astaxuqichao/navigation2) 的
+`humble` 分支。不要使用 `ros-humble-navigation2` 替代该源码仓库，否则扩展后的
+`nav2_msgs/action/FollowPath.action` 会与 Navflex 不兼容。
+
+在一个空的 ROS 2 工作区根目录中拉取三个并列仓库：
+
+```bash
+mkdir -p ~/ros2/nav_ws
+cd ~/ros2/nav_ws
+
+git clone --branch humble --single-branch \
+  https://github.com/Astaxuqichao/navigation2.git navigation2
+git clone --branch humble --single-branch \
+  https://github.com/SteveMacenski/spatio_temporal_voxel_layer.git \
+  spatio_temporal_voxel_layer
+git clone https://github.com/Astaxuqichao/navflex.git navflex
+```
+
+完成后的必要目录结构为：
+
+```text
+nav_ws/
+├── navigation2/                   Astaxuqichao 的 Nav2 Humble 分支
+├── spatio_temporal_voxel_layer/   开源三维时空体素障碍层
+└── navflex/                       Navflex
+```
+
+已有工作区可用以下命令检查来源与分支：
+
+```bash
+git -C navigation2 remote get-url origin
+git -C navigation2 branch --show-current
+git -C spatio_temporal_voxel_layer remote get-url origin
+git -C spatio_temporal_voxel_layer branch --show-current
+```
+
+预期两个分支均为 `humble`，仓库地址分别为：
+
+```text
+https://github.com/Astaxuqichao/navigation2.git
+https://github.com/SteveMacenski/spatio_temporal_voxel_layer.git
+```
 
 ## 主要依赖
 
 - ROS 2 Humble
-- Nav2 源码包 `navigation2`
-- `spatio_temporal_voxel_layer`
+- [`Astaxuqichao/navigation2`](https://github.com/Astaxuqichao/navigation2)，`humble` 分支
+- [`SteveMacenski/spatio_temporal_voxel_layer`](https://github.com/SteveMacenski/spatio_temporal_voxel_layer)，`humble` 分支
 - TurtleBot3 / TurtleBot3 Manipulation / TurtleBot3 Simulations
 - Gazebo Classic 11
 - `ros2_control`、`controller_manager`、`xacro`
 
-从新环境准备依赖时，建议在工作区根目录执行：
+从新环境准备依赖时，在工作区根目录执行：
 
 ```bash
+source /opt/ros/humble/setup.bash
 rosdep update
-rosdep install --from-paths src --ignore-src -r -y
+rosdep install --from-paths \
+  navigation2 spatio_temporal_voxel_layer navflex \
+  --ignore-src -r -y --rosdistro humble
 ```
 
 ## 编译
 
 ```bash
-cd <workspace>
+cd ~/ros2/nav_ws
+source /opt/ros/humble/setup.bash
 colcon build --symlink-install --cmake-args -DCMAKE_BUILD_TYPE=Release
 source install/setup.bash
 ```
 
-如果改过 `src/navigation2/nav2_msgs/action/FollowPath.action`，需要重编依赖该 action 的包，至少包括：
+如果改过 `navigation2/nav2_msgs/action/FollowPath.action`，需要重编依赖该 action 的包，至少包括：
 
 ```bash
 colcon build --packages-select \
   nav2_msgs nav2_behavior_tree nav2_bt_navigator \
-  navflex_costmap_nav navflex_bt_nodes navflex_bt_navigator \
+  navflex_nav navflex_bt_nodes navflex_bt_navigator \
   navflex_bringup
 source install/setup.bash
 ```
@@ -160,12 +210,12 @@ Navflex 扩展了 `nav2_msgs/action/FollowPath`：
 - `xy_goal_tolerance`
 - `yaw_goal_tolerance`
 
-两个值都为 `0.0` 时，`navflex_costmap_nav` 使用参数文件中的默认到点精度。控制器内部仍通过 `nav2_core::GoalChecker` 判断是否到点；每个新的 FollowPath goal 会按 action 容差生成对应的 goal checker。
+两个值都为 `0.0` 时，`navflex_nav` 使用参数文件中的默认到点精度。控制器内部仍通过 `nav2_core::GoalChecker` 判断是否到点；每个新的 FollowPath goal 会按 action 容差生成对应的 goal checker。
 
 ## 文档入口
 
 - Bringup、依赖、TB3 仿真和排查：[navflex_bringup/README.md](navflex_bringup/README.md)
-- 核心导航服务端：[navflex_costmap_nav/README.md](navflex_costmap_nav/README.md)
+- 核心导航服务端：[navflex_nav/README.md](navflex_nav/README.md)
 - 文本/语义任务入口：[navflex_instruction_server/README.md](navflex_instruction_server/README.md)
 - 本地全向假机器人：[omni_fake_node/README.md](omni_fake_node/README.md)
 

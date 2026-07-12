@@ -1,0 +1,35 @@
+<?xml version="1.0"?>
+<root main_tree_to_execute="MainTree">
+  <BehaviorTree ID="MainTree">
+    <PipelineSequence name="NavigateWithRogMapReplanning">
+      <RateController hz="1.0">
+        <NavflexGetPathAction
+          goal="{goal}"
+          message="{planner_message}"
+          outcome="{planner_outcome}"
+          path="{path}"
+          planner_id="RogAStar"
+          server_name="compute_path_to_pose"
+          server_timeout="1000"
+          tolerance="0.5"
+          use_start="false"/>
+      </RateController>
+      <NavflexExePathAction
+        angle_to_goal="{controller_angle_to_goal}"
+        controller_id="ScanController"
+        dist_to_goal="{controller_dist_to_goal}"
+        feedback_distance_to_goal="{controller_feedback_distance_to_goal}"
+        feedback_message="{controller_feedback_message}"
+        feedback_outcome="{controller_feedback_outcome}"
+        feedback_speed="{controller_feedback_speed}"
+        final_pose="{controller_final_pose}"
+        message="{controller_message}"
+        outcome="{controller_outcome}"
+        path="{path}"
+        server_name="follow_path"
+        server_timeout="1000"
+        xy_goal_tolerance="0.0"
+        yaw_goal_tolerance="0.0"/>
+    </PipelineSequence>
+  </BehaviorTree>
+</root>
