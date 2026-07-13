@@ -258,7 +258,7 @@ def generate_launch_description():
         DeclareLaunchArgument('use_sim_time', default_value='true', description='Use simulation clock'),
         DeclareLaunchArgument('chassis_model', default_value='omni',
                               description='Chassis model selecting navigation parameters: omni or diff'),
-        DeclareLaunchArgument('navigation_type', default_value='rogmap',
+        DeclareLaunchArgument('navigation_type', default_value='costmap',
                               description='Navigation backend: costmap or rogmap'),
         DeclareLaunchArgument('params_file', default_value='',
                               description='Optional parameter file override. Empty selects by navigation type'),

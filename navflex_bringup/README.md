@@ -117,7 +117,15 @@ source install/setup.bash
 
 - `use_sim_time:=true`
 - `chassis_model:=omni`
+- `navigation_type:=costmap`
 - `params_file` 为空时按 `chassis_model` 自动选择参数文件
+
+默认启动使用 Nav2 local/global costmap，不创建 ROGMap。需要显式切换到
+ROGMap 时使用：
+
+```bash
+ros2 launch navflex_bringup navflex_bringup_launch.py navigation_type:=rogmap
+```
 
 底盘参数选择：
 
