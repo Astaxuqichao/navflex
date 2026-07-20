@@ -100,6 +100,22 @@ namespace rog_map {
         void updateProbMap(const PointCloud &cloud, const Pose &pose);
 
     protected:
+        virtual bool shouldUpdateProbMap(const PclPoint &) const {
+            return true;
+        }
+
+        virtual bool shouldObserveRaycast(const PclPoint &) const {
+            return false;
+        }
+
+        virtual bool beginRaycastObservation(const Vec3f &, bool) {
+            return false;
+        }
+
+        virtual void observeRaycastPoint(const Vec3f &, bool) {}
+
+        virtual void endRaycastObservation() {}
+
         rog_map::Config cfg_;
         InfMap::Ptr inf_map_;
         FreeCntMap::Ptr fcnt_map_;
@@ -119,6 +135,7 @@ namespace rog_map {
         } raycast_data_;
 
         vector<double> time_consuming_;
+        int esdf_update_counter_{0};
         vector<string> time_consuming_name_{"Total", "Raycast", "Update_cache", "Inflation", "PointCloudNumber",
                                             "CacheNumber", "InflationNumber"};
 

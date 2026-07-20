@@ -235,10 +235,7 @@ namespace rog_map {
 
                 }
 
-        double dt = up_t.stop();
-        if(dt > 0.1) {
-            std::cout << "updateESDF3D time: " << dt << std::endl;
-        }
+        up_t.stop();
 #ifdef ESDF_MAP_DEBUG
         static int cnt = 0;
         static double t = 0.0;
@@ -515,4 +512,3 @@ namespace rog_map {
 
 
 }
-

@@ -102,4 +102,3 @@ namespace rog_map {
     };
 
 }
-

@@ -2,6 +2,8 @@ rog_map:
   ros__parameters:
     global_frame: map
     point_cloud_topic: /scan_cloud
+    point_cloud_frame: base_link
+    update_frequency: 5.0
     global_resolution: 0.4
     global_min: [-50.0, -50.0, -5.0]
     global_max: [50.0, 50.0, 15.0]
@@ -9,6 +11,9 @@ rog_map:
     local_size_x: 12.0
     local_size_y: 12.0
     local_size_z: 6.0
+    hit_probability: 0.75
+    miss_probability: 0.40
+    occupied_threshold: 0.70
     ray_min_range: 0.3
     ray_max_range: 15.0
     esdf_max_distance: 5.0
@@ -18,6 +23,14 @@ rog_map:
     unknown_inflation_step: 1
     unknown_threshold: 0.7
     point_filter_num: 2
-    batch_update_size: 1
+    global_point_filter_num: 2
+    batch_update_size: 2
+    map_sliding_threshold: 1.0
+    frontier_extraction: true
+    enable_esdf: true
+    esdf_update_interval: 2
+    load_pcd: false
+    pcd_file: ""
+    pcd_frame: map
     virtual_ground_height: -5.0
     virtual_ceiling_height: 15.0

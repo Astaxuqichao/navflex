@@ -61,8 +61,11 @@ private:
   std::string global_frame_{"map"};
   std::string robot_base_frame_{"base_link"};
   std::string cloud_topic_{"/scan_cloud"};
+  std::string point_cloud_frame_{"base_link"};
   double transform_tolerance_{0.3};
   double publish_frequency_{1.0};
+  double update_frequency_{5.0};
+  uint64_t last_update_stamp_nanoseconds_{0};
 
   std::shared_ptr<RogMap> map_;
   std::shared_ptr<tf2_ros::Buffer> tf_buffer_;

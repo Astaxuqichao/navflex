@@ -59,6 +59,7 @@ void ROGMap::init() {
     time_log_file_ << endl;
 
 
+#ifdef NAVFLEX_ROG_MAP_ENABLE_PCD_IO
     if (cfg_.load_pcd_en) {
         string pcd_path = cfg_.pcd_name;
         PointCloud::Ptr pcd_map(new PointCloud);
@@ -75,6 +76,7 @@ void ROGMap::init() {
         cout << BLUE << " -- [ROGMap]Load pcd file success with " << pcd_map->size() << " pts." << RESET << endl;
         map_empty_ = false;
     }
+#endif
 }
 
 bool ROGMap::findNearestCellThat(const bool & is, const GridType& target_type,
@@ -238,7 +240,7 @@ bool ROGMap::isLineFree(const Vec3f& start_pt, const Vec3f& end_pt, Vec3f& free_
 }
 
 void ROGMap::updateMap(const PointCloud& cloud, const Pose& pose) {
-    TimeConsuming ssss("updateMap", true);
+    TimeConsuming update_timer("updateMap", false);
     if (cfg_.ros_callback_en) {
         std::cout << YELLOW << "ROS callback is enabled, can not insert map from updateMap API." << RESET
             << std::endl;

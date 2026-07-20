@@ -309,11 +309,12 @@ void ProbMap::updateProbMap(const PointCloud& cloud, const Pose& pose) {
     TimeConsuming tc("updateMap", false);
     const Vec3f& pos = pose.first;
     time_consuming_[4] = cloud.size();
+    bool map_slid = false;
     if (cfg_.map_sliding_en && !insideLocalMap(pos) && raycast_data_.batch_update_counter == 0) {
         std::cout << YELLOW << " -- [ROGMapCore] cur_pose out of map range, reset the map." << RESET << std::endl;
         std::cout << YELLOW << " -- [ROGMapCore] Sliding to map center at: " << pos.transpose() << RESET << std::endl;
         slideAllMap(pos);
-        return;
+        map_slid = true;
     }
 
     if (pos.z() > cfg_.virtual_ceil_height) {
@@ -329,6 +330,7 @@ void ProbMap::updateProbMap(const PointCloud& cloud, const Pose& pose) {
 
     if (raycast_data_.batch_update_counter == 0 &&
         cfg_.map_sliding_en  &&
+        !map_slid &&
         (map_empty_ || (pos - local_map_origin_d_).norm() > cfg_.map_sliding_thresh)
         ) {
         slideAllMap(pos);
@@ -339,6 +341,7 @@ void ProbMap::updateProbMap(const PointCloud& cloud, const Pose& pose) {
     raycastProcess(cloud, pos);
     time_consuming_[1] = t_raycast.stop();
     raycast_data_.batch_update_counter++;
+    bool map_updated = false;
     if (raycast_data_.batch_update_counter >= cfg_.batch_update_size) {
         raycast_data_.batch_update_counter = 0;
         time_consuming_[5] = raycast_data_.update_cache_id_g.size();
@@ -346,13 +349,18 @@ void ProbMap::updateProbMap(const PointCloud& cloud, const Pose& pose) {
         probabilisticMapFromCache();
         time_consuming_[2] = t_update.stop();
         map_empty_ = false;
+        map_updated = true;
     }
     inf_map_->getInflationNumAndTime(time_consuming_[6], time_consuming_[3]);
     time_consuming_[0] = tc.stop();
 
     /* Update ESDF map */
-    if (cfg_.esdf_en) {
-        esdf_map_->updateESDF3D(pos);
+    if (cfg_.esdf_en && map_updated) {
+        esdf_update_counter_++;
+        if (esdf_update_counter_ >= cfg_.esdf_update_interval) {
+            esdf_map_->updateESDF3D(pos);
+            esdf_update_counter_ = 0;
+        }
     }
 
     /* For the first frame, clear all unknown around the robot */
@@ -684,7 +692,14 @@ void ProbMap::raycastProcess(const PointCloud& input_cloud, const Vec3f& cur_odo
     /// Step 1; Raycast and add to update cache.
     const int& cloud_in_size = input_cloud.size();
     // new version of raycasting process
-    auto raycasting_cloud = vec_Vec3f{};
+    struct RaycastPoint {
+        Vec3f local_endpoint;
+        Vec3f observed_endpoint;
+        bool update_local{true};
+        bool update_observed_hit{true};
+        bool observe{false};
+    };
+    std::vector<RaycastPoint, Eigen::aligned_allocator<RaycastPoint>> raycasting_cloud;
     raycasting_cloud.reserve(cloud_in_size);
 
     // 1) process all non-inf points, update occupied probability
@@ -703,6 +718,11 @@ void ProbMap::raycastProcess(const PointCloud& input_cloud, const Vec3f& cur_odo
 
         Vec3f p(pcl_p.x, pcl_p.y, pcl_p.z);
         Vec3i pt_id_g;
+        const bool update_local = shouldUpdateProbMap(pcl_p);
+        const bool observe = shouldObserveRaycast(pcl_p);
+        if (!update_local && !observe) {
+            continue;
+        }
 
         // no raycasting, purely add occ pints
         if (!cfg_.raycasting_en) {
@@ -750,6 +770,9 @@ void ProbMap::raycastProcess(const PointCloud& input_cloud, const Vec3f& cur_odo
             continue;
         }
 
+        const Vec3f observed_endpoint = p;
+        const bool update_observed_hit = update_hit;
+
         // local map bound
         if (((p - raycast_box_min).minCoeff() < 0) ||
             ((p - raycast_box_max).maxCoeff() > 0)) {
@@ -766,9 +789,10 @@ void ProbMap::raycastProcess(const PointCloud& input_cloud, const Vec3f& cur_odo
         raycast_data_.cache_box_max = raycast_data_.cache_box_max.cwiseMax(p);
 
         // 1.4) for all validate hit points, update probability
-        raycasting_cloud.push_back(p);
+        raycasting_cloud.push_back(
+            {p, observed_endpoint, update_local, update_observed_hit, observe});
 
-        if (update_hit) {
+        if (update_local && update_hit) {
             posToGlobalIndex(p, pt_id_g);
             insertUpdateCandidate(pt_id_g, true);
         }
@@ -776,17 +800,41 @@ void ProbMap::raycastProcess(const PointCloud& input_cloud, const Vec3f& cur_odo
 
     if (cfg_.raycasting_en) {
         // 4) process all inf points, updae free probability
-        for (const auto& p : raycasting_cloud) {
-            Vec3f raycast_start = (p - cur_odom).normalized() * cfg_.raycast_range_min + cur_odom;
-            raycast_data_.raycaster.setInput(raycast_start, p);
+        for (const auto& ray : raycasting_cloud) {
+            const Vec3f endpoint = ray.observe ? ray.observed_endpoint : ray.local_endpoint;
+            Vec3f raycast_start = cur_odom;
+            if (!ray.observe) {
+                raycast_start =
+                    (endpoint - cur_odom).normalized() * cfg_.raycast_range_min + cur_odom;
+            }
+            raycast_data_.raycaster.setInput(raycast_start, endpoint);
+            const bool observing = ray.observe &&
+                beginRaycastObservation(ray.observed_endpoint, ray.update_observed_hit);
             Vec3f ray_pt;
             while (raycast_data_.raycaster.step(ray_pt)) {
                 Vec3i cur_ray_id_g;
                 posToGlobalIndex(ray_pt, cur_ray_id_g);
-                if (!insideLocalMap(cur_ray_id_g)) {
+                const bool inside_local = insideLocalMap(cur_ray_id_g);
+                if (!inside_local && !observing) {
                     break;
                 }
-                insertUpdateCandidate(cur_ray_id_g, false);
+                const double squared_range = (ray_pt - cur_odom).squaredNorm();
+                if (ray.update_local && inside_local &&
+                    squared_range >= cfg_.sqr_raycast_range_min &&
+                    (ray_pt - cur_odom).squaredNorm() <=
+                    (ray.local_endpoint - cur_odom).squaredNorm())
+                {
+                    insertUpdateCandidate(cur_ray_id_g, false);
+                }
+                if (observing) {
+                    observeRaycastPoint(ray_pt, false);
+                }
+            }
+            if (observing) {
+                if (ray.update_observed_hit) {
+                    observeRaycastPoint(ray.observed_endpoint, true);
+                }
+                endRaycastObservation();
             }
         }
     }

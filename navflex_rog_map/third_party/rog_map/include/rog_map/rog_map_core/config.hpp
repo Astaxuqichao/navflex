@@ -289,6 +289,7 @@ namespace rog_map {
 
         // add 24.07.18 add esdf
         bool esdf_en{false};
+        int esdf_update_interval{1};
         Vec3f esdf_local_update_box{};
         double esdf_resolution{};
 

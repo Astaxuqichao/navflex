@@ -43,8 +43,10 @@ void RogMapROS::declareParameters()
   declare_parameter("global_frame", rclcpp::ParameterValue("map"));
   declare_parameter("robot_base_frame", rclcpp::ParameterValue("base_link"));
   declare_parameter("point_cloud_topic", rclcpp::ParameterValue("/scan_cloud"));
+  declare_parameter("point_cloud_frame", rclcpp::ParameterValue("base_link"));
   declare_parameter("transform_tolerance", rclcpp::ParameterValue(0.3));
   declare_parameter("publish_frequency", rclcpp::ParameterValue(1.0));
+  declare_parameter("update_frequency", rclcpp::ParameterValue(5.0));
   declare_parameter("global_resolution", rclcpp::ParameterValue(0.4));
   declare_parameter("global_min", rclcpp::ParameterValue(std::vector<double>{-50.0, -50.0, -5.0}));
   declare_parameter("global_max", rclcpp::ParameterValue(std::vector<double>{50.0, 50.0, 15.0}));
@@ -52,6 +54,9 @@ void RogMapROS::declareParameters()
   declare_parameter("local_size_x", rclcpp::ParameterValue(12.0));
   declare_parameter("local_size_y", rclcpp::ParameterValue(12.0));
   declare_parameter("local_size_z", rclcpp::ParameterValue(6.0));
+  declare_parameter("hit_probability", rclcpp::ParameterValue(0.75));
+  declare_parameter("miss_probability", rclcpp::ParameterValue(0.40));
+  declare_parameter("occupied_threshold", rclcpp::ParameterValue(0.70));
   declare_parameter("ray_min_range", rclcpp::ParameterValue(0.3));
   declare_parameter("ray_max_range", rclcpp::ParameterValue(15.0));
   declare_parameter("esdf_max_distance", rclcpp::ParameterValue(5.0));
@@ -61,7 +66,15 @@ void RogMapROS::declareParameters()
   declare_parameter("unknown_inflation_step", rclcpp::ParameterValue(1));
   declare_parameter("unknown_threshold", rclcpp::ParameterValue(0.7));
   declare_parameter("point_filter_num", rclcpp::ParameterValue(2));
-  declare_parameter("batch_update_size", rclcpp::ParameterValue(1));
+  declare_parameter("global_point_filter_num", rclcpp::ParameterValue(2));
+  declare_parameter("batch_update_size", rclcpp::ParameterValue(2));
+  declare_parameter("map_sliding_threshold", rclcpp::ParameterValue(1.0));
+  declare_parameter("frontier_extraction", rclcpp::ParameterValue(true));
+  declare_parameter("enable_esdf", rclcpp::ParameterValue(true));
+  declare_parameter("esdf_update_interval", rclcpp::ParameterValue(2));
+  declare_parameter("load_pcd", rclcpp::ParameterValue(false));
+  declare_parameter("pcd_file", rclcpp::ParameterValue(""));
+  declare_parameter("pcd_frame", rclcpp::ParameterValue("map"));
   declare_parameter("virtual_ground_height", rclcpp::ParameterValue(-5.0));
   declare_parameter("virtual_ceiling_height", rclcpp::ParameterValue(15.0));
 }
@@ -72,9 +85,11 @@ RogMapConfig RogMapROS::loadConfig()
   get_parameter("robot_base_frame", robot_base_frame_);get_parameter(
     "point_cloud_topic",
     cloud_topic_);
+  get_parameter("point_cloud_frame", point_cloud_frame_);
   get_parameter("transform_tolerance", transform_tolerance_);get_parameter(
     "publish_frequency",
     publish_frequency_);
+  get_parameter("update_frequency", update_frequency_);
   config.frame_id = global_frame_;get_parameter("global_resolution", config.global_resolution);
   get_parameter("local_resolution", config.local_resolution);get_parameter(
     "local_size_x",
@@ -82,6 +97,9 @@ RogMapConfig RogMapROS::loadConfig()
   get_parameter("local_size_y", config.local_size_y);get_parameter(
     "local_size_z",
     config.local_size_z);
+  get_parameter("hit_probability", config.hit_probability);
+  get_parameter("miss_probability", config.miss_probability);
+  get_parameter("occupied_threshold", config.occupied_threshold);
   get_parameter("ray_min_range", config.ray_min_range);get_parameter(
     "ray_max_range",
     config.ray_max_range);
@@ -92,7 +110,15 @@ RogMapConfig RogMapROS::loadConfig()
   get_parameter("unknown_inflation_step", config.unknown_inflation_step);
   get_parameter("unknown_threshold", config.unknown_threshold);
   get_parameter("point_filter_num", config.point_filter_num);
+  get_parameter("global_point_filter_num", config.global_point_filter_num);
   get_parameter("batch_update_size", config.batch_update_size);
+  get_parameter("map_sliding_threshold", config.map_sliding_threshold);
+  get_parameter("frontier_extraction", config.frontier_extraction);
+  get_parameter("enable_esdf", config.enable_esdf);
+  get_parameter("esdf_update_interval", config.esdf_update_interval);
+  get_parameter("load_pcd", config.load_pcd);
+  get_parameter("pcd_file", config.pcd_file);
+  get_parameter("pcd_frame", config.pcd_frame);
   get_parameter("virtual_ground_height", config.virtual_ground_height);
   get_parameter("virtual_ceiling_height", config.virtual_ceiling_height);
   auto minimum = get_parameter("global_min").as_double_array();auto maximum = get_parameter(
@@ -113,7 +139,12 @@ nav2_util::CallbackReturn RogMapROS::on_configure(const rclcpp_lifecycle::State 
     RCLCPP_ERROR(get_logger(), "ROG map configuration failed: %s", error.what());
     return nav2_util::CallbackReturn::FAILURE;
   }
-  callback_group_ = create_callback_group(rclcpp::CallbackGroupType::MutuallyExclusive, false);
+  if (map_->loadedPcdPointCount() > 0) {
+    RCLCPP_INFO(
+      get_logger(), "Loaded %zu PCD map points in frame %s",
+      map_->loadedPcdPointCount(), global_frame_.c_str());
+  }
+  callback_group_ = create_callback_group(rclcpp::CallbackGroupType::MutuallyExclusive, true);
   tf_buffer_ = std::make_shared<tf2_ros::Buffer>(get_clock());
   tf_listener_ = std::make_shared<tf2_ros::TransformListener>(*tf_buffer_);
   global_pub_ = create_publisher<sensor_msgs::msg::PointCloud2>(
@@ -122,7 +153,8 @@ nav2_util::CallbackReturn RogMapROS::on_configure(const rclcpp_lifecycle::State 
   local_pub_ = create_publisher<sensor_msgs::msg::PointCloud2>(
     "local_occupied", rclcpp::QoS(
       1).transient_local());
-  stopped_ = true;paused_ = false;current_ = false;return nav2_util::CallbackReturn::SUCCESS;
+  stopped_ = true;paused_ = false;current_ = map_->loadedPcdPointCount() > 0;
+  return nav2_util::CallbackReturn::SUCCESS;
 }
 
 nav2_util::CallbackReturn RogMapROS::on_activate(const rclcpp_lifecycle::State &)
@@ -170,14 +202,26 @@ void RogMapROS::resetMap() {if (map_) {map_->reset();current_ = false;}}
 void RogMapROS::cloudCallback(sensor_msgs::msg::PointCloud2::ConstSharedPtr message)
 {
   if (stopped_ || paused_ || !map_) {return;} geometry_msgs::msg::TransformStamped transform;
+  const uint64_t stamp_nanoseconds = rclcpp::Time(message->header.stamp).nanoseconds();
+  if (update_frequency_ > 0.0 && last_update_stamp_nanoseconds_ > 0 &&
+    stamp_nanoseconds > last_update_stamp_nanoseconds_)
+  {
+    const uint64_t minimum_period = static_cast<uint64_t>(1.0e9 / update_frequency_);
+    if (stamp_nanoseconds - last_update_stamp_nanoseconds_ < minimum_period) {
+      return;
+    }
+  }
+  const std::string & source_frame =
+    point_cloud_frame_.empty() ? message->header.frame_id : point_cloud_frame_;
   try {
     transform = tf_buffer_->lookupTransform(
-      global_frame_, message->header.frame_id, message->header.stamp,
+      global_frame_, source_frame, message->header.stamp,
       rclcpp::Duration::from_seconds(transform_tolerance_));
   } catch (const tf2::TransformException & error) {
     current_ = false;RCLCPP_WARN_THROTTLE(
       get_logger(),
-      *get_clock(), 2000, "ROG map cloud transform failed: %s", error.what());return;
+      *get_clock(), 2000, "ROG map cloud transform %s -> %s failed: %s",
+      source_frame.c_str(), global_frame_.c_str(), error.what());return;
   }
   const auto & q = transform.transform.rotation;double x = q.x, y = q.y, z = q.z, w = q.w;
   double r00 = 1 - 2 * (y * y + z * z), r01 = 2 * (x * y - z * w), r02 = 2 * (x * z + y * w);
@@ -186,7 +230,7 @@ void RogMapROS::cloudCallback(sensor_msgs::msg::PointCloud2::ConstSharedPtr mess
   RogMapInput input;input.sensor_origin.x = transform.transform.translation.x;
   input.sensor_origin.y = transform.transform.translation.y;
   input.sensor_origin.z = transform.transform.translation.z;
-  input.stamp_nanoseconds = rclcpp::Time(message->header.stamp).nanoseconds();input.points.reserve(
+  input.stamp_nanoseconds = stamp_nanoseconds;input.points.reserve(
     message->width * message->height);
   sensor_msgs::PointCloud2ConstIterator<float> ix(*message, "x"), iy(*message, "y"), iz(
     *message,
@@ -201,15 +245,32 @@ void RogMapROS::cloudCallback(sensor_msgs::msg::PointCloud2::ConstSharedPtr mess
     point.z = r20 * *ix + r21 * *iy + r22 * *iz + input.sensor_origin.z;input.points.push_back(
       point);
   }
-  map_->update(input);current_ = true;
+  map_->update(input);last_update_stamp_nanoseconds_ = stamp_nanoseconds;current_ = true;
 }
 
 void RogMapROS::publishMaps()
 {
-  if (stopped_ || paused_ || !current_ || !map_) {return;} auto global = map_->occupiedCloud();
-  auto local = map_->localOccupiedCloud();
-  global.header.stamp = now();local.header.stamp = global.header.stamp;global_pub_->publish(global);
-  local_pub_->publish(local);
+  if (stopped_ || paused_ || !current_ || !map_) {
+    return;
+  }
+  const bool publish_global = global_pub_->get_subscription_count() > 0 ||
+    global_pub_->get_intra_process_subscription_count() > 0;
+  const bool publish_local = local_pub_->get_subscription_count() > 0 ||
+    local_pub_->get_intra_process_subscription_count() > 0;
+  if (!publish_global && !publish_local) {
+    return;
+  }
+  const auto stamp = now();
+  if (publish_global) {
+    auto global = map_->occupiedCloud();
+    global.header.stamp = stamp;
+    global_pub_->publish(global);
+  }
+  if (publish_local) {
+    auto local = map_->localOccupiedCloud();
+    local.header.stamp = stamp;
+    local_pub_->publish(local);
+  }
 }
 
 }  // namespace navflex_rog_map

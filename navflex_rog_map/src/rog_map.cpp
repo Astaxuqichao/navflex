@@ -13,6 +13,7 @@
 #include <stdexcept>
 
 #include "rog_map/rog_map.h"
+#include "pcl/io/pcd_io.h"
 #include "sensor_msgs/point_cloud2_iterator.hpp"
 #include "tf2/LinearMath/Quaternion.h"
 #include "tf2/LinearMath/Transform.h"
@@ -26,15 +27,17 @@ namespace navflex_rog_map
 class OfficialRogMap : public rog_map::ROGMap
 {
 public:
-  void initialize(const RogMapConfig & config)
+  void initialize(const RogMapConfig & config, RogMap * owner)
   {
+    owner_ = owner;
     cfg_.resolution = config.local_resolution;
     cfg_.inflation_resolution = config.inflation_resolution;
     cfg_.inflation_step = config.inflation_step;
     cfg_.unk_inflation_en = config.unknown_inflation;
     cfg_.unk_inflation_step = config.unknown_inflation_step;
     cfg_.unk_thresh = config.unknown_threshold;
-    cfg_.point_filt_num = config.point_filter_num;
+    // Filtering is performed before constructing the temporary PCL cloud.
+    cfg_.point_filt_num = 1;
     cfg_.batch_update_size = config.batch_update_size;
     cfg_.p_hit = config.hit_probability;
     cfg_.p_miss = config.miss_probability;
@@ -56,12 +59,13 @@ public:
       config.local_size_x, config.local_size_y, config.local_size_z);
     cfg_.local_update_box_d = cfg_.map_size_d;
     cfg_.map_sliding_en = true;
-    cfg_.map_sliding_thresh = -1.0;
+    cfg_.map_sliding_thresh = config.map_sliding_threshold;
     cfg_.fix_map_origin.setZero();
     cfg_.virtual_ground_height = config.virtual_ground_height;
     cfg_.virtual_ceil_height = config.virtual_ceiling_height;
-    cfg_.frontier_extraction_en = true;
-    cfg_.esdf_en = true;
+    cfg_.frontier_extraction_en = config.frontier_extraction;
+    cfg_.esdf_en = config.enable_esdf;
+    cfg_.esdf_update_interval = config.esdf_update_interval;
     cfg_.esdf_resolution = config.local_resolution;
     cfg_.esdf_local_update_box = cfg_.map_size_d;
     cfg_.visualization_range = cfg_.map_size_d;
@@ -85,12 +89,61 @@ public:
   void esdfSecondGradient(const Eigen::Vector3d & point, Eigen::Vector3d & gradient)
   {esdf_map_->evaluateSecondGrad(point, gradient);}
 
+  void loadOccupiedCloud(const rog_map::PointCloud & cloud)
+  {
+    updateOccPointCloud(cloud);
+    if (cfg_.esdf_en) {
+      esdf_map_->updateESDF3D(getLocalMapOrigin());
+    }
+  }
+
 protected:
+  bool shouldUpdateProbMap(const rog_map::PclPoint & point) const override
+  {
+    return owner_->shouldUpdateLocal(static_cast<unsigned int>(point.intensity));
+  }
+
+  bool shouldObserveRaycast(const rog_map::PclPoint & point) const override
+  {
+    geometry_msgs::msg::Point endpoint;
+    endpoint.x = point.x;
+    endpoint.y = point.y;
+    endpoint.z = point.z;
+    return owner_->shouldObserveGlobal(
+      static_cast<unsigned int>(point.intensity), endpoint);
+  }
+
+  bool beginRaycastObservation(const rog_map::Vec3f & endpoint, bool update_hit) override
+  {
+    geometry_msgs::msg::Point point;
+    point.x = endpoint.x();
+    point.y = endpoint.y();
+    point.z = endpoint.z();
+    return owner_->beginGlobalRay(point, update_hit);
+  }
+
+  void observeRaycastPoint(const rog_map::Vec3f & sample, bool is_hit) override
+  {
+    geometry_msgs::msg::Point point;
+    point.x = sample.x();
+    point.y = sample.y();
+    point.z = sample.z();
+    owner_->observeGlobalRayPoint(point, is_hit);
+  }
+
+  void endRaycastObservation() override
+  {
+    owner_->endGlobalRay();
+  }
+
   const double getSystemWalltimeNow() override
   {
     return std::chrono::duration<double>(
       std::chrono::steady_clock::now().time_since_epoch()).count();
   }
+
+private:
+  RogMap * owner_{nullptr};
 };
 
 namespace
@@ -109,13 +162,68 @@ RogMap::RogMap(RogMapConfig config)
   if (config_.global_resolution <= 0.0 || config_.local_resolution <= 0.0) {
     throw std::invalid_argument("ROG map resolutions must be positive");
   }
+  const auto valid_probability = [](double value) {return value > 0.0 && value < 1.0;};
+  if (!valid_probability(config_.hit_probability) ||
+    !valid_probability(config_.miss_probability) ||
+    !valid_probability(config_.occupied_threshold))
+  {
+    throw std::invalid_argument("ROG map probabilities must be between zero and one");
+  }
+  if (config_.hit_probability <= config_.occupied_threshold) {
+    throw std::invalid_argument(
+            "hit_probability must be greater than occupied_threshold so one hit can create an "
+            "occupied cell");
+  }
+  if (config_.point_filter_num <= 0 || config_.global_point_filter_num <= 0 ||
+    config_.batch_update_size <= 0 || config_.esdf_update_interval <= 0 ||
+    config_.map_sliding_threshold < 0.0)
+  {
+    throw std::invalid_argument("ROG map filter, batch, and sliding parameters are invalid");
+  }
+  if (config_.load_pcd && config_.pcd_file.empty()) {
+    throw std::invalid_argument("pcd_file must be set when load_pcd is enabled");
+  }
+  if (config_.load_pcd && config_.pcd_frame != config_.frame_id) {
+    throw std::invalid_argument(
+            "pcd_frame must match global_frame; PCD points are loaded directly");
+  }
   hit_log_ = logit(config_.hit_probability);
   miss_log_ = logit(config_.miss_probability);
   min_log_ = logit(config_.min_probability);
   max_log_ = logit(config_.max_probability);
   occupied_log_ = logit(config_.occupied_threshold);
+  global_endpoint_voxels_.reserve(4096);
   official_map_ = std::make_unique<OfficialRogMap>();
-  official_map_->initialize(config_);
+  official_map_->initialize(config_, this);
+  if (config_.load_pcd) {
+    pcl::PointCloud<pcl::PointXYZ> pcd_cloud;
+    if (pcl::io::loadPCDFile(config_.pcd_file, pcd_cloud) < 0) {
+      throw std::runtime_error("Failed to load PCD map: " + config_.pcd_file);
+    }
+    rog_map::PointCloud cloud;
+    cloud.reserve(pcd_cloud.size());
+    for (const auto & sample : pcd_cloud) {
+      if (!std::isfinite(sample.x) || !std::isfinite(sample.y) || !std::isfinite(sample.z)) {
+        continue;
+      }
+      rog_map::PclPoint rog_sample;
+      rog_sample.x = sample.x;
+      rog_sample.y = sample.y;
+      rog_sample.z = sample.z;
+      rog_sample.intensity = 0.0F;
+      cloud.push_back(rog_sample);
+      geometry_msgs::msg::Point point;
+      point.x = sample.x; point.y = sample.y; point.z = sample.z;
+      Index3D index;
+      if (!worldToGrid(point, index)) {
+        continue;
+      }
+      global_cells_[key(index)].log_odds = max_log_;
+      ++loaded_pcd_points_;
+    }
+    official_map_->loadOccupiedCloud(cloud);
+    ++revision_;
+  }
 }
 
 RogMap::~RogMap() = default;
@@ -193,24 +301,69 @@ OccupancyState RogMap::inflatedState(const geometry_msgs::msg::Point & point) co
 
 bool RogMap::isFrontier(const geometry_msgs::msg::Point & point) const
 {
+  if (!config_.frontier_extraction) {
+    return false;
+  }
   std::shared_lock<std::shared_mutex> lock(mutex_);
   return official_map_->isFrontier(rog_map::Vec3f(point.x, point.y, point.z));
 }
 
-void RogMap::updateGlobalRay(
-  const geometry_msgs::msg::Point & origin, const geometry_msgs::msg::Point & endpoint)
+bool RogMap::shouldUpdateLocal(unsigned int flags) const
 {
-  double length = distance(origin, endpoint); int count = std::max(
-    1, static_cast<int>(std::ceil(length / (config_.global_resolution * 0.5))));
-  for (int step = 0; step <= count; ++step) {
-    double t = static_cast<double>(step) / count; geometry_msgs::msg::Point p;
-    p.x = origin.x + t * (endpoint.x - origin.x); p.y = origin.y + t * (endpoint.y - origin.y);
-    p.z = origin.z + t * (endpoint.z - origin.z); Index3D i;
-    if (!worldToGrid(p, i)) {continue;} auto & cell = global_cells_[key(i)];
-    cell.log_odds = std::clamp(
-      cell.log_odds + (step == count ? hit_log_ : miss_log_), min_log_,
-      max_log_);
+  return (flags & 1U) != 0U;
+}
+
+bool RogMap::shouldObserveGlobal(
+  unsigned int flags, const geometry_msgs::msg::Point & endpoint) const
+{
+  if ((flags & 2U) == 0U) {
+    return false;
   }
+  const double range = distance(global_sensor_origin_, endpoint);
+  return range >= config_.ray_min_range && range <= config_.ray_max_range;
+}
+
+bool RogMap::beginGlobalRay(
+  const geometry_msgs::msg::Point & endpoint, bool update_hit)
+{
+  Index3D endpoint_index;
+  has_current_global_hit_ = update_hit && worldToGrid(endpoint, endpoint_index);
+  if (has_current_global_hit_) {
+    current_global_hit_key_ = key(endpoint_index);
+    if (!global_endpoint_voxels_.insert(current_global_hit_key_).second) {
+      has_current_global_hit_ = false;
+      return false;
+    }
+  }
+  has_last_global_ray_key_ = false;
+  return true;
+}
+
+void RogMap::observeGlobalRayPoint(
+  const geometry_msgs::msg::Point & point, bool is_hit)
+{
+  Index3D index;
+  if (!worldToGrid(point, index)) {
+    return;
+  }
+  const int64_t cell_key = key(index);
+  if (!is_hit &&
+    ((has_current_global_hit_ && cell_key == current_global_hit_key_) ||
+    (has_last_global_ray_key_ && cell_key == last_global_ray_key_)))
+  {
+    return;
+  }
+  auto & cell = global_cells_[cell_key];
+  cell.log_odds = std::clamp(
+    cell.log_odds + (is_hit ? hit_log_ : miss_log_), min_log_, max_log_);
+  last_global_ray_key_ = cell_key;
+  has_last_global_ray_key_ = true;
+}
+
+void RogMap::endGlobalRay()
+{
+  has_current_global_hit_ = false;
+  has_last_global_ray_key_ = false;
 }
 
 void RogMap::update(
@@ -218,17 +371,25 @@ void RogMap::update(
   const std::vector<geometry_msgs::msg::Point> & points)
 {
   std::unique_lock<std::shared_mutex> lock(mutex_);
-  for (const auto & point : points) {
-    double range = distance(sensor_origin, point);
-    if (range >= config_.ray_min_range && range <= config_.ray_max_range) {
-      updateGlobalRay(sensor_origin, point);
-    }
-  }
+  global_sensor_origin_ = sensor_origin;
+  global_endpoint_voxels_.clear();
   rog_map::PointCloud cloud;
-  cloud.reserve(points.size());
-  for (const auto & point : points) {
+  const auto minimum_filter = std::min(
+    config_.point_filter_num, config_.global_point_filter_num);
+  cloud.reserve((points.size() + minimum_filter - 1) / minimum_filter);
+  for (std::size_t index = 0; index < points.size(); ++index) {
+    const bool update_local = index % config_.point_filter_num == 0;
+    const bool update_global = index % config_.global_point_filter_num == 0;
+    if (!update_local && !update_global) {
+      continue;
+    }
+    const auto & point = points[index];
     rog_map::PclPoint sample;
-    sample.x = point.x; sample.y = point.y; sample.z = point.z; sample.intensity = 0.0F;
+    sample.x = point.x;
+    sample.y = point.y;
+    sample.z = point.z;
+    sample.intensity = static_cast<float>(
+      (update_local ? 1U : 0U) | (update_global ? 2U : 0U));
     cloud.push_back(sample);
   }
   super_utils::Pose pose;
@@ -245,6 +406,10 @@ void RogMap::update(const RogMapInput & input)
 
 bool RogMap::distanceAt(const geometry_msgs::msg::Point & p, double & value) const
 {
+  if (!config_.enable_esdf) {
+    value = std::numeric_limits<double>::infinity();
+    return false;
+  }
   std::shared_lock<std::shared_mutex> lock(mutex_);
   value = official_map_->esdfDistance(rog_map::Vec3f(p.x, p.y, p.z));
   return std::isfinite(value);
@@ -252,6 +417,11 @@ bool RogMap::distanceAt(const geometry_msgs::msg::Point & p, double & value) con
 bool RogMap::distanceAndGradientAt(
   const geometry_msgs::msg::Point & p, double & value, geometry_msgs::msg::Vector3 & gradient) const
 {
+  if (!config_.enable_esdf) {
+    value = std::numeric_limits<double>::infinity();
+    gradient = geometry_msgs::msg::Vector3();
+    return false;
+  }
   std::shared_lock<std::shared_mutex> lock(mutex_);
   Eigen::Vector3d eigen_gradient;
   official_map_->esdfDistanceAndGradient(Eigen::Vector3d(p.x, p.y, p.z), value, eigen_gradient);
@@ -262,6 +432,10 @@ bool RogMap::distanceAndGradientAt(
 bool RogMap::secondGradientAt(
   const geometry_msgs::msg::Point & point, geometry_msgs::msg::Vector3 & gradient) const
 {
+  if (!config_.enable_esdf) {
+    gradient = geometry_msgs::msg::Vector3();
+    return false;
+  }
   std::shared_lock<std::shared_mutex> lock(mutex_);
   Eigen::Vector3d result;
   official_map_->esdfSecondGradient(Eigen::Vector3d(point.x, point.y, point.z), result);
@@ -273,8 +447,13 @@ bool RogMap::isCollisionFree(const geometry_msgs::msg::Point & p, double radius)
 {
   std::shared_lock<std::shared_mutex> lock(mutex_);
   const rog_map::Vec3f point(p.x, p.y, p.z);
-  if (official_map_->isOccupiedInflate(point) || official_map_->isUnknownInflate(point)) {
+  if (official_map_->isOccupiedInflate(point) ||
+    (config_.unknown_inflation && official_map_->isUnknownInflate(point)))
+  {
     return false;
+  }
+  if (!config_.enable_esdf) {
+    return true;
   }
   return official_map_->esdfDistance(point) > radius;
 }
