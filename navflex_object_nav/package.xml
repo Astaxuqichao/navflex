@@ -1,0 +1,43 @@
+<?xml version="1.0"?>
+<?xml-model href="http://download.ros.org/schema/package_format3.xsd" schematypens="http://www.w3.org/2001/XMLSchema"?>
+<package format="3">
+  <name>navflex_object_nav</name>
+  <version>0.1.0</version>
+  <description>
+    Object-goal navigation for navflex: find a named object (e.g. "the green
+    potted plant by the bookshelf") in a house. Two phases:
+      A (searching) — world model imagines top-K frontier candidates, a VLM
+        critic ranks which most likely heads toward the target;
+      B (approaching) — once the target is visible, a VLM grounds it to a bearing
+        in the live camera, LIDAR gives the range, and existing point-to-point
+        navigation drives to an approach pose (world-model gate verifies safety).
+    This package holds the object grounder, the orchestrator state machine, and
+    the DetectObject service. The VLM world model + director + gate live in
+    navflex_world_model; the frontier planner and exploration BT are untouched.
+  </description>
+  <maintainer email="bzjiang94w@gmail.com">navflex</maintainer>
+  <license>Apache-2.0</license>
+
+  <buildtool_depend>ament_cmake</buildtool_depend>
+  <buildtool_depend>ament_cmake_python</buildtool_depend>
+  <buildtool_depend>rosidl_default_generators</buildtool_depend>
+
+  <depend>rclpy</depend>
+  <depend>sensor_msgs</depend>
+  <depend>geometry_msgs</depend>
+  <depend>std_msgs</depend>
+  <!-- Phase B: LIDAR ranging (TF), point-to-point drive (nav2 actions), RViz markers. -->
+  <depend>tf2_ros</depend>
+  <depend>nav2_msgs</depend>
+  <depend>visualization_msgs</depend>
+  <depend>python3-numpy</depend>
+  <!-- Phase B / director reuse the world-model services + VLM backends. -->
+  <depend>navflex_world_model</depend>
+
+  <exec_depend>rosidl_default_runtime</exec_depend>
+  <member_of_group>rosidl_interface_packages</member_of_group>
+
+  <export>
+    <build_type>ament_cmake</build_type>
+  </export>
+</package>

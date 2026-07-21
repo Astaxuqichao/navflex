@@ -1,0 +1,73 @@
+<?xml version="1.0"?>
+<!--
+  Groot2 / BehaviorTree.CPP v3 node model for navflex_wm_bt_nodes.
+  Load this file in Groot via: File -> Load palette from file.
+
+  These nodes bolt a world-model + critic gate onto frontier exploration
+  WITHOUT modifying the original framework. Selection over N candidates stays
+  in the FrontierAStar planner; the gate is a per-candidate go/no-go on its
+  top pick (propose-cheap / verify-expensive cascade).
+-->
+<root>
+  <TreeNodesModel>
+
+    <!--
+      NavflexEvaluatePlanAction
+      Wraps: navflex_world_model::srv::EvaluatePlan (service: navflex_world_model/evaluate)
+
+      SUCCESS  iff verdict is in `pass_verdicts` (default "approve")  -> execute
+      FAILURE  otherwise                                              -> veto
+
+      server_timeout MUST be large: a rollout takes seconds to minutes and the
+      base class fails the call (a spurious veto) once server_timeout elapses.
+    -->
+    <Action ID="NavflexEvaluatePlanAction">
+      <input_port name="goal" type="geometry_msgs::msg::PoseStamped">
+        Candidate viewpoint to gate: position + observation yaw (path endpoint)
+      </input_port>
+      <input_port name="instruction" type="std::string">
+        Instruction handed to the critic (a safety/traversability question)
+      </input_port>
+      <input_port name="frame_num" type="int" default="0">
+        Rollout frame count (0 = auto-size from the plan)
+      </input_port>
+      <input_port name="dry_run" type="bool" default="false">
+        Produce the rollout but skip the critic
+      </input_port>
+      <input_port name="pass_verdicts" type="std::string" default="approve">
+        Comma-separated verdicts counted as SUCCESS (e.g. "approve,needs_confirmation")
+      </input_port>
+      <input_port name="service_name" type="std::string" default="navflex_world_model/evaluate">
+        Service name (BtServiceNode base port; overrides the constructor default)
+      </input_port>
+      <input_port name="server_timeout" type="std::chrono::milliseconds">
+        Service call timeout (ms). Set large (e.g. 900000); rollouts take minutes.
+      </input_port>
+      <output_port name="verdict" type="std::string">
+        approve | reject | needs_confirmation | unavailable
+      </output_port>
+      <output_port name="confidence" type="double">
+        Critic confidence in [0, 1]
+      </output_port>
+      <output_port name="reason" type="std::string">
+        Human-readable reason for the verdict
+      </output_port>
+    </Action>
+
+    <!--
+      NavflexPathEndPose
+      Extracts a path's final pose (the selected viewpoint + observation yaw)
+      into a PoseStamped, so the gate gets a goal without touching GetPathAction.
+      FAILURE if there is no path or it is empty.
+    -->
+    <Action ID="NavflexPathEndPose">
+      <input_port name="path" type="nav_msgs::msg::Path">
+        Path whose final pose is the selected viewpoint
+      </input_port>
+      <output_port name="goal" type="geometry_msgs::msg::PoseStamped">
+        Final pose of the path (viewpoint position + observation yaw)
+      </output_port>
+    </Action>
+
+  </TreeNodesModel>
+</root>

@@ -303,6 +303,34 @@ colcon build --symlink-install --packages-select navflex_instruction_server
 
 这个包是“指令路由层”：负责抽象文本解析、能力发现和调用编排。真正的导航行为仍由 `navflex_nav`、`navflex_cmdbehavior` 和 Nav2 插件完成。
 
+## 世界模型安全闸门（第五层）
+
+`navflex_world_model` 是一个可选的上层包：在任务 grounding 完成、马上要下发给底盘的那一刻，
+先用世界模型沿规划路径想象一遍执行过程，再让 critic 判断是否安全、是否符合指令。
+判决直接接进 `navflex_task_server` 已有的确认闸门。
+
+默认关闭。打开后：
+
+```bash
+ros2 launch navflex_instruction_server task_stack.launch.py \
+  world_model_enabled:=true \
+  world_model_backend:=lingbot_http \
+  world_model_critic:=openai
+```
+
+`ExecuteTask` 因此新增了几个字段：
+
+- 请求 `skip_world_model`：人工复核过想象结果后，强行放行这一次调用。
+- 响应 `world_model_verdict`：`approve` / `reject` / `needs_confirmation` /
+  `skipped` / `disabled` / `not_evaluated`
+- 响应 `world_model_reason`、`world_model_rollout_uri`
+
+闸门只对**有导航目标**的任务生效；`rotate` / `linear` / `wait` 没有路径可想象，标为
+`skipped` 并放行。闸门失败时（相机无帧、推理服务不可达、critic 报错）**失败即闭合**，
+返回 `needs_confirmation`，绝不当作放行。
+
+细节见 [navflex_world_model/README.md](../navflex_world_model/README.md)。
+
 ## 语义任务与 VLN 桥接
 
 在基础文本指令服务之上，本包还提供三层面向 AI/VLN 的安全执行入口：

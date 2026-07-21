@@ -1,0 +1,887 @@
+# ============================================================================
+# nav2_params_matrix.yaml —— MATRiX · xgb 四足 · house2 住宅 · 前沿自主探索
+#
+# 场景事实（源自 MATRiX/matrix，非猜测）：
+#   · 机器人  : xgb = 四足(ABAD/HIP/KNEE 关节)，base_link 站立高 ≈ 0.33 m (TF 实测)
+#               ⚠️ 注意 xgb.xml 里的 base_link pos="0 0 0.65" 是 MuJoCo 的【初始生成
+#                  位置】(从空中放下的落点)，不是站立高度。腿完全伸直才 0.444m
+#                  (大腿0.2+小腿0.214+足半径0.03)，四足站立膝盖是弯的 -> 0.33m
+#               src/robot_mujoco/zsibot_robots/xgb/xgb.xml
+#               → 行走时机身有起伏，z 方向容差要留够（见 topology_z_tolerance /
+#                 viewpoint_free_z_*）
+#   · 雷达    : Livox mid360 @ base_link 下 (x=0.130, y=0.023, z=0.17598), 10 Hz
+#               config/config.json:/robot/sensors/lidar
+#               → sensor_height = 0.176（就是这个 z，不是估的）
+#   · 地图    : house2 = /Game/Maps/House2World (run_sim.sh scene 24)
+#               多房间住宅（~200 m²），有门洞/走廊 → 膨胀半径不能大，否则堵死门
+#   · 动态物  : scene.json 有 3 个行人 (human1, 0.5 m/s, 带轨迹) + 2 个静态方块
+#               → 全局 costmap 【禁用 persistent 衰减】，否则留永久鬼影（详见 global_costmap）
+#
+# ★ 点云滤波契约（决定 UFO 地图能看到什么，是一批参数的物理上界）：
+#     ros2 run livox_cloud_filter cloud_filter_node --ros-args \
+#       -p h_angle_min:=-45.0 -p h_angle_max:=45.0 \
+#       -p v_angle_min:=-29.3 -p v_angle_max:=29.3 \
+#       -p min_range:=0.3     -p max_range:=10.0 \
+#       -p wall_enabled:=true -p wall_frame:=map -p wall_y:=-11.22 \
+#       -p wall_x_min:=-4.30  -p wall_x_max:=4.30 \
+#       -p wall_z_min:=0.0    -p wall_z_max:=3.0 -p wall_point_step:=0.05
+#   → /livox/lidar/filtered = 正前方 90° x 垂直 58.6° 的锥，0.3~10 m
+#
+#   虚拟墙(wall_*)：MATRiX 的门洞在 UE 侧没有碰撞体，雷达射线直接穿门而过，
+#   下游会规划一条穿门的路径然后撞死。该节点用世界系矩形补上这堵"感知墙"，
+#   同时做【遮挡】(丢弃墙后的点) + 【注入】(在墙面撒点)。
+#   注入的墙点与真实点走【同一套距离/视场裁剪】，所以墙在 >max_range 外时那一帧
+#   看不到它 —— 这与真墙行为一致，且墙后的点同样超距被裁，不会漏进穿墙的点。
+#   由它【唯一确定】下列参数（标 [C]，改滤波必须同步改，否则物理上自相矛盾）：
+#     max_range            = 10.0  (== 滤波 max_range)
+#     frontier_slope_deg   = 29.0  (<= 滤波 v_angle 29.3°)
+#     viewpoint_slope_deg  = 29.0  (<= 滤波 v_angle 29.3°)
+#
+#   ‼️ 最硬的一条约束： 滤波 min_range  <=  robot_clear_radius
+#      ------------------------------------------------------------------
+#      frontier_tools.cpp:515-532 在每次插入点云后，会把传感器周围
+#      半径 robot_clear_radius 的球【强制标为自由】。
+#      而滤波 min_range 以内是【一个点都没有的盲球】。
+#      若 min_range > robot_clear_radius，中间那层壳就是:
+#          没有点 (min_range 滤掉了)  +  不被清空 (超出 robot_clear_radius)
+#      正前方 90° 锥内还能靠射线穿过去清掉，但【侧面/后方没有射线】
+#      -> 那圈壳永远是"未知"，紧贴自由区 -> 变成【永久前沿，跟着机器人走】，
+#         机器人会围着自己脚下的伪前沿原地打转。
+#      故 min_range(0.3) <= robot_clear_radius(0.35)。
+#
+#      注1: min_range 原本设 1.0 是想滤掉机身自身回波，但这是【多余的】——
+#           按 xgb 实测几何算过: 机身 4 个角(俯仰 21~38°/方位 48~158°)、
+#           前后足(俯仰 72~76°) 全部已被 h_angle(±45°)+v_angle(±29.3°) 排除。
+#      注2: 雷达离地 = 0.33(站立) + 0.176(sensor_height) = 0.506m，
+#           受 v_angle(±29.3°) 限制只能看到 0.506/tan(29.3°) = 0.90m 外的地面 ——
+#           近处地面本来就看不到，与 min_range 无关，不必为它抬高 min_range。
+#
+#   注: h_angle=±45° 意味着只看得见正前方，侧后方要靠转身/移动补全 ——
+#       这会拖慢探索节奏，但不需要改参数（视点采样是 360° 的，地图会累积）。
+#
+# 基于 nav2_params.yaml，做了两类改动：
+#
+#   [A] MATRiX 平台适配（话题 / 时钟 / 机器人物理量，非调参）
+#       1) 障碍点云  /scan_cloud -> /livox/lidar            (Mid360, PointCloud2)
+#            · local_costmap / global_costmap 的 rgbd_obstacle_layer.rgbd1_mark.topic
+#       2) 前沿点云  /scan_cloud -> /livox/lidar/filtered   (MATRiX 侧 livox_cloud_filter 发布)
+#            · frontier_shared_config.point_cloud_topic     (滤波后噪点少, 更适合建 UFO 图)
+#       3) 里程计    odom        -> /odom/mujoco_odom       (nav_msgs/Odometry)
+#            · navflex_nav.odom_topic        (主节点内 RobotInformation 订阅)
+#            · velocity_smoother.odom_topic  (速度平滑反馈)
+#       4) 机器人 xgb 物理量: footprint 0.56x0.38m, sensor_height 0.176m (base_link->lidar TF z)
+#
+#   [B] 按 200 m² 房间（≈14x14 m, 对角 ~20 m）重新设计的探索/地图参数
+#       见下方 frontier_shared_config 与两个 costmap 的逐行注释。
+#
+# 关键前提（不满足则跑不起来）：
+#   · 节点名: 上游把包 navflex_costmap_nav 改名为 navflex_nav, launch 里 name='navflex_nav',
+#     所以主节点参数顶层键必须是 `navflex_nav:`（不是旧的 navflex_costmap_nav:）。
+#   · 后端: 必须 navigation_type:=costmap 启动, 否则走 ROG-Map 后端, 加载不到 Frontier 插件。
+#   · 时钟: MATRiX 不发 /clock, 命令行必须传 use_sim_time:=false
+#           (launch 用 RewrittenYaml 覆盖, 本文件里的 use_sim_time 值不生效, 仅作占位)
+#   · TF: map->odom->base_link->lidar 由 MATRiX 侧提供。
+#   · RMW: 全部终端保持 RMW_IMPLEMENTATION=rmw_zenoh_cpp + ROS_DOMAIN_ID=89
+#
+# 启动:
+#   ros2 launch navflex_bringup navflex_bringup_launch.py \
+#       navigation_type:=costmap chassis_model:=omni use_bt_navigator:=false \
+#       params_file:=/workspace/navflex/navflex_bringup/params/nav2_params_matrix.yaml \
+#       use_sim_time:=false
+#   ros2 launch navflex_autonomous_exploration_bt fael_exploration.launch.py use_sim_time:=false
+#   ros2 topic pub --once /exploration/start std_msgs/msg/Empty "{}"
+# ============================================================================
+
+# ---------------------------------------------------------------------------
+# 主导航节点（lifecycle）。键名必须与 launch 里的 name='navflex_nav' 一致。
+# ---------------------------------------------------------------------------
+navflex_nav:
+  ros__parameters:
+    use_sim_time: False
+    odom_topic: /odom/mujoco_odom     # [A3] MATRiX 里程计
+
+navflex_controller_server:
+  ros__parameters:
+    use_sim_time: False
+    controller_frequency: 20.0
+    controller_patience: 5.0
+    controller_max_retries: -1
+    controller_stuck_timeout: 10.0
+    controller_stuck_distance: 0.1
+    controller_required_consecutive_valid_cmds: 10
+    cmd_vel_topic: "cmd_vel_nav"
+    robot_frame: "base_link"
+    map_frame: "map"
+    verbose: false
+    min_x_velocity_threshold: 0.001
+    min_y_velocity_threshold: 0.001
+    min_theta_velocity_threshold: 0.001
+    failure_tolerance: 0.3
+    # [B] 探索目标是"视点"而非精确位姿, 容差放宽可显著减少末端磨蹭/超时。
+    #     原 0.05/0.05 是点到点导航的精度要求, 对探索过严。
+    default_xy_goal_tolerance: 0.20
+    default_yaw_goal_tolerance: 0.35
+    controller_plugins: ["FollowPath"]
+
+    FollowPath:
+      plugin: "nav2_mppi_controller::MPPIController"
+      visualize: true
+      time_steps: 56
+      model_dt: 0.05
+      batch_size: 2000
+      vx_std: 0.2
+      vy_std: 0.08
+      wz_std: 0.4
+      # [B] 200 m² 室内 + 家具, 1.0 m/s 过快(留给控制器的反应距离不足)。
+      #     0.6 m/s 下 MPPI 的 56*0.05=2.8s 预测时域 ≈ 1.7m 前瞻, 与房间尺度匹配。
+      vx_max: 0.6
+      # [D] -0.2 -> -0.35: 卡在墙角时倒车能力太弱会脱不了困。
+      #     costmap 用的是 360° 的 /livox/lidar, 身后有观测, 倒车是安全的。
+      vx_min: -0.35
+      # [D] Omni 底盘: 横移是脱离墙角最有效的手段, 放开一点 (0.25 -> 0.35)。
+      vy_max: 0.35
+      wz_max: 1.5
+      ax_max: 2.0
+      ay_max: 2.0
+      ax_min: -2.0
+      az_max: 2.0
+      iteration_count: 1
+      prune_distance: 2.0
+      transform_tolerance: 0.1
+      temperature: 0.3
+      gamma: 0.015
+      motion_model: "Omni"
+      visualize_all_sampled_traj: false
+      visualize_optimized_traj: true
+      TrajectoryVisualizer:
+        trajectory_step: 5
+        time_step: 3
+      AckermannConstraints:
+        min_turning_r: 0.1667
+      critics: ["ConstraintCritic", "CostCritic", "GoalCritic", "PathAlignCritic", "GoalAngleCritic", "PathFollowCritic", "PathAngleCritic", "PreferForwardCritic"]
+      ConstraintCritic:
+        enabled: true
+        cost_power: 1
+        cost_weight: 4.0
+      GoalCritic:
+        enabled: true
+        cost_power: 1
+        cost_weight: 5.0
+        threshold_to_consider: 1.4
+      GoalAngleCritic:
+        enabled: true
+        cost_power: 1
+        cost_weight: 3.0
+        threshold_to_consider: 0.5
+      PreferForwardCritic:
+        enabled: true
+        cost_power: 1
+        cost_weight: 5.0
+        threshold_to_consider: 0.5
+      CostCritic:
+        enabled: true
+        cost_power: 2
+        cost_weight: 3.81
+        critical_cost: 300.0
+        consider_footprint: true
+        collision_cost: 1000000.0
+        near_goal_distance: 1.0
+        trajectory_point_step: 2
+      PathAlignCritic:
+        enabled: true
+        cost_power: 2
+        cost_weight: 20.0
+        max_path_occupancy_ratio: 0.05
+        trajectory_point_step: 4
+        threshold_to_consider: 0.5
+        offset_from_furthest: 20
+        use_path_orientations: false
+      PathFollowCritic:
+        enabled: true
+        cost_power: 1
+        cost_weight: 8.0
+        offset_from_furthest: 5
+        threshold_to_consider: 1.4
+      PathAngleCritic:
+        enabled: true
+        cost_power: 1
+        cost_weight: 5.0
+        offset_from_furthest: 4
+        threshold_to_consider: 0.8
+        max_angle_to_furthest: 0.35
+        mode: 0
+        forward_preference: true
+
+navflex_behavior_server:
+  ros__parameters:
+    use_sim_time: False
+    behavior_plugins: ["cmd_behavior"]
+    cmd_behavior:
+      plugin: "navflex_cmdbehavior/CmdBehavior"
+      linear_vel: 0.2
+      angular_vel: 0.5
+      xy_tolerance: 0.05
+      yaw_tolerance: 0.017
+      timeout: 30.0
+      control_frequency: 10.0
+      cmd_vel_topic: "cmd_vel_nav"
+
+# ---------------------------------------------------------------------------
+# local_costmap —— 只服务 MPPI 局部避障
+# [B] 8x8 m 滚动窗口: MPPI 前瞻约 1.7m + prune_distance 2.0, 8m 半窗(4m)绰绰有余。
+#     比默认 10x10 省 36% 栅格, 20Hz 更新更稳。
+# ---------------------------------------------------------------------------
+local_costmap:
+  local_costmap:
+    ros__parameters:
+      use_sim_time: False
+      update_frequency: 10.0
+      publish_frequency: 5.0
+      global_frame: base_link
+      robot_base_frame: base_link
+      rolling_window: true
+      width: 8
+      height: 8
+      resolution: 0.05
+      # [A4] xgb 实测外形 (0.56 x 0.38 m)
+      footprint: "[[0.28, 0.19], [0.28, -0.19], [-0.28, -0.19], [-0.28, 0.19]]"
+      plugins: ["rgbd_obstacle_layer", "exclusion_zone", "inflation_layer"]
+      exclusion_zone:
+        plugin: "navflex_exclusion_zone::ExclusionZoneLayer"
+        # 本层的 global_frame 是 base_link，而 ExclusionZoneLayer 只在收到消息时
+        # 做一次 tf 变换就把顶点存下来，之后不再重算。世界系的禁区一旦烤进
+        # base_link，就会变成跟着机器人跑的幽灵障碍。禁区只在 global_costmap 用。
+        enabled: false
+      rgbd_obstacle_layer:
+        plugin: "spatio_temporal_voxel_layer/SpatioTemporalVoxelLayer"
+        enabled:               true
+        # [B] 本层订阅的是 /livox/lidar —— mid360 的【原始 360° 点云】,
+        #     不是 frontier 用的 ±45° filtered 点云。所以机器人对身侧/身后
+        #     一直有观测, 局部层不需要"记忆", 只需跟得上动态障碍。
+        #     场景里有 3 个行人(0.5 m/s) -> 0.5s 快速线性衰减, 人走开代价立刻消失。
+        voxel_decay:           0.5
+        decay_model:           0      # 0=linear, 1=exponential, -1=persistent
+        voxel_size:            0.05
+        track_unknown_space:   true
+        observation_persistence: 0.0
+        max_obstacle_height:   2.0
+        mark_threshold:        0
+        update_footprint_enabled: true
+        combination_method:    1
+        origin_z:              0.0
+        publish_voxel_map:     true
+        transform_tolerance:   0.2
+        mapping_mode:          false
+        map_save_duration:     60.0
+        observation_sources:   rgbd1_mark
+        rgbd1_mark:
+          data_type: PointCloud2
+          topic: /livox/lidar          # [A1] MATRiX 障碍点云
+          marking: true
+          clearing: false
+          # [B] 局部只关心 5m 内(> 半窗 4m 即可), 更远的交给 global。
+          obstacle_range:        5.0
+          min_obstacle_height: -0.1    # 地面稍下, 避免把地面打成障碍
+          max_obstacle_height:  2.0
+          expected_update_rate: 0.0
+          observation_persistence: 0.0
+          inf_is_valid: false
+          clear_after_reading: true
+          filter: "voxel"
+          voxel_min_points: 0
+      inflation_layer:
+        plugin: "nav2_costmap_2d::InflationLayer"
+        cost_scaling_factor: 3.0
+        # [D] ★ 角落自锁的元凶: 0.40 -> 0.30
+        #     机器人内接半径仅 0.19m。在墙角(两面墙)时, 0.40 的膨胀会把机器人
+        #     footprint 整个泡进高代价区 -> MPPI 的 CostCritic(consider_footprint=true,
+        #     collision_cost=1e6) 给【所有】采样轨迹打出天价代价 -> 机器人动不了 = 卡死。
+        #     0.30 仍 > 内接半径 0.19(有 0.11m 安全余量), 但给墙角留出了可行空间。
+        #     house2 门洞约 0.9m: 每侧净空 (0.9-0.38)/2 = 0.26m, 0.30 也更容易过门。
+        inflation_radius: 0.30
+      always_send_full_costmap: False
+
+# ---------------------------------------------------------------------------
+# global_costmap —— 探索时【没有先验地图】
+# [B] 关键改动 vs nav2_params.yaml:
+#     1) 去掉 static_layer   : 探索没有 /map 先验, 留着会拿不到地图卡在 configure。
+#     2) 改为 rolling_window : 24x24 m 覆盖整个 200m² 房间(14m)+余量, 不需预设原点。
+#     3) track_unknown_space=true : 探索必须能区分"未知", 否则前沿无从谈起。
+#     4) STVL 衰减: 【不能用 persistent(-1)】！
+#        MATRiX scene.json 里有 3 个动态行人(human1, 0.5 m/s, 带轨迹),
+#        且本层 clearing:false(只 marking, 不主动清除) —— 唯一的清除手段就是衰减。
+#        若设 persistent, 行人走过会留下【永久鬼影】, 把走廊/门洞糊死。
+#        故用 decay_model:0(线性) + voxel_decay:15.0:
+#          · 行人鬼影 15s 后消失(拖影长度 0.5*15 = 7.5m, 可接受)
+#          · 墙体只要在视野内就被持续重新观测, 不会消失
+#        注: 探索时路径由 FrontierAStar 在自己的 UFO 图上规划(不依赖本 costmap),
+#            本层主要供 GridBased/Smac 和代价查询用, 故适度遗忘无害。
+# ---------------------------------------------------------------------------
+global_costmap:
+  global_costmap:
+    ros__parameters:
+      use_sim_time: False
+      update_frequency: 5.0
+      publish_frequency: 2.0
+      global_frame: map
+      robot_base_frame: base_link
+      rolling_window: true
+      width: 24
+      height: 24
+      resolution: 0.05
+      track_unknown_space: true
+      footprint: "[[0.28, 0.19], [0.28, -0.19], [-0.28, -0.19], [-0.28, 0.19]]"
+      plugins: ["rgbd_obstacle_layer", "exclusion_zone", "inflation_layer"]
+      exclusion_zone:
+        plugin: "navflex_exclusion_zone::ExclusionZoneLayer"
+        enabled: true
+      rgbd_obstacle_layer:
+        plugin: "spatio_temporal_voxel_layer/SpatioTemporalVoxelLayer"
+        enabled:               true
+        voxel_decay:           15.0   # 见上: 必须能清掉动态行人的鬼影
+        decay_model:           0      # 0=linear, 1=exponential, -1=persistent(本场景禁用!)
+        voxel_size:            0.05
+        track_unknown_space:   true
+        observation_persistence: 0.0
+        max_obstacle_height:   2.0
+        mark_threshold:        0
+        update_footprint_enabled: true
+        combination_method:    1
+        origin_z:              0.0
+        publish_voxel_map:     true
+        transform_tolerance:   0.2
+        mapping_mode:          false
+        map_save_duration:     60.0
+        observation_sources:   rgbd1_mark
+        rgbd1_mark:
+          data_type: PointCloud2
+          topic: /livox/lidar          # [A1] MATRiX 障碍点云
+          marking: true
+          clearing: false
+          # [B] 与 frontier 的 max_range(10.0) 对齐, 保证 costmap 与 UFO 图看到的一样远。
+          obstacle_range:       10.0
+          # ↓ 下面几项与 local 相同
+          min_obstacle_height: -0.1
+          max_obstacle_height:  2.0
+          expected_update_rate: 0.0
+          observation_persistence: 0.0
+          inf_is_valid: false
+          clear_after_reading: true
+          filter: "voxel"
+          voxel_min_points: 0
+      inflation_layer:
+        plugin: "nav2_costmap_2d::InflationLayer"
+        cost_scaling_factor: 3.0
+        inflation_radius: 0.30   # [D] 与 local_costmap 一致, 见那边的"角落自锁"说明
+      always_send_full_costmap: False
+
+navflex_planner_server:
+  ros__parameters:
+    use_sim_time: False
+    expected_planner_frequency: 20.0
+    planner_patience: 10.0
+    planner_max_retries: 10
+    planner_plugins: ["GridBased", "Smac2D", "FrontierCandidate", "FrontierAStar"]
+
+    # =======================================================================
+    # frontier_shared_config —— FrontierCandidate 与 FrontierAStar 共享同一份配置
+    # (代码里 shared_parameter_prefix = "frontier_shared_config."; 两个插件块只写 plugin:)
+    #
+    # 200 m² 房间 (≈14x14 m, 对角 ~20 m) 的尺度推导:
+    #   max_range 10.0                  -> 从房间中心可打到任一面墙
+    #   attach_range = min(cvr, max_range-0.5) = min(6.0, 9.5) = 6.0
+    #   新视点生成半径 = local_range                 = 8.0  m
+    #   旧候选淘汰半径 = local_range + attach_range  = 14.0 m  (≈房间一个边长)
+    #   前沿预筛半径   = local_range + cvr           = 14.0 m
+    # =======================================================================
+    frontier_shared_config:
+      frame_id: "map"
+      point_cloud_topic: "/livox/lidar/filtered"   # [A2] 滤波后点云, 噪点少
+      visualization_topic_prefix: "frontier_exploration"
+
+      # ---- UFO 地图 ----
+      # [E] 0.10m: 室内家具多(桌椅腿/门框), 0.15 容易把桌腿和墙糊在一起,
+      #     0.10 才分得清可通行的缝隙。
+      #     ⚠️ 代价不是线性的: 代码里有几处 O(1/res³) 的三重循环 ——
+      #        · isNearOccupied / isNearUnknown  (601/623 行)
+      #        · visited 检查 (1633 行, visited_radius=1.5):
+      #            res 0.15 -> ceil(1.5/0.15)=10 -> 21³ =  9,261 次
+      #            res 0.10 -> ceil(1.5/0.10)=15 -> 31³ = 29,791 次   (3.2x)
+      #        · 强制清空球 (517 行): 7³=343 -> 9³=729                (2.1x)
+      #        射线投射(点云插入/可见性) 是 O(1/res)                   (1.5x)
+      #     整体约 2~3.4 倍算力, 地图内存约 2.25 倍。
+      #     怎么判断扛不扛得住: 看导航栈日志里拓扑更新的 total=XX.XXms
+      #     (frontier_tools.cpp:1046)。BT 的 RateController hz=0.33 -> 每 3s 才规划一次,
+      #     单次 total < 500ms 完全没问题; 若稳定 > 1s, 退回 0.15。
+      #
+      #     ⚠️ 改了这里, RViz 里 ufomap_occupied_cloud 的 Boxes "Size (m)"
+      #        也必须同步改成 0.10, 否则体素之间露缝、拼不成墙面。
+      resolution: 0.10
+      depth_levels: 16
+      insert_depth: 0
+      insert_discrete: true
+      simple_ray_casting: false
+      early_stopping: 0
+      publish_map_clouds: true
+      map_publish_period: 1.0
+
+      # ---- 三个核心半径（见上方推导）----
+      # [C] 必须 == 点云滤波的 max_range(10.0)! 滤波后 10m 外根本没有点,
+      #     这里设得更大只会让 UFO 图白白按更大范围做射线插入(纯浪费),
+      #     且会抬高 attach_range 的上限(max_range-0.5), 让视点高估自己的"视力"。
+      max_range: 10.0
+      # [D] 视点采样半径 -> 3.0m: 让所有【新】视点都落在机器人 3m 内。
+      #     house2 是多房间住宅, 8m 的视点常常落在墙那边/另一个房间,
+      #     机器人得绕一大圈才够得着, 在角落里尤其容易磨蹭。
+      #     ⚠ 代价: 探索变"近视"。代码里【没有全局前沿兜底】——
+      #        frontier_astar_planner.cpp:67 candidates.empty() -> 直接 NO_PATH_FOUND。
+      #        前沿的可达半径 = local_range + attach_range = 3+3 = 6m。
+      #        若 6m 内彻底探完、下一片未知区更远, 就会一直 NO_PATH 卡住。
+      #        日志里出现 "no FAEL frontier candidate" 反复刷屏 = 这个值太小了, 往回调到 4~5。
+      local_range: 5.0
+      # [D] -> attach_range = min(3.0, 10.0-0.5) = 3.0。
+      #     视点只认领自己周围 3m 内的前沿; 同时把前沿可达半径压到 3+3=6m。
+      # [I] ★ 9.5 -> 5.0  (=> attach_range = min(5.0, 10.0-0.5) = 5.0)
+      #   为什么要改小 —— 关键在 isFrontierVisible 的射线【忽略未知体素】:
+      #     frontier_tools.cpp:  map->isCollisionFree(viewpoint, frontier, true, ...)
+      #     ufomap/occupancy_map_base.h:482  isCollisionFree(..., bool ignore_unknown, ...)
+      #                                                            ^^^^^^^^^^^^^^ 传的是 true
+      #   => 视点可以【透过还没建图的墙】认领前沿(墙已观测=occupied 才会挡住射线;
+      #      还没观测的墙段是 unknown -> 射线直接穿过去)。
+      #   house2 房间才 3~6m, attach_range=9.5 让一个视点能跨 2~3 个房间认领前沿
+      #   -> 增益虚高: 视点声称看得见 9.5m 外的前沿, 机器人走过去被真墙挡住, 啥也看不到。
+      #   5.0 ≈ 一个房间的尺度 -> 视点只认领【自己房间内】的前沿 -> 增益真实。
+      #
+      #   为什么现在【敢】改小 —— 因为有了 [G] 全局前沿兜底:
+      #     以前 attach_range 必须大, 否则局部够不着远处前沿就永久 NO_PATH 卡死;
+      #     现在够不着时 GLOBAL FALLBACK 会用拓扑图把机器人送过去, 所以近视不再致命。
+      #   代价: 前沿可达半径 = local_range(5) + attach_range(5) = 10m (原 14.5m)。
+      #   附带好处: grid_size = max(sample_dist, attach_range x 0.25) 从 2.375 降到 1.25,
+      #            空间哈希更细, 邻域查询更快。
+      #
+      #   ⚠️ 改这个值会改变 information_gain 的【量纲】(每候选挂的前沿数变了),
+      #      所以 distance_weight 必须重新实测标定! (见 distance_weight 的注释)
+      candidate_visibility_range: 5.0
+
+      # [D] 采样间距跟着变密: local_range 只剩 3m, 若还用 0.8, 扣掉 1.2m 盲球后
+      #     只剩 1.6/2.4 两圈采样点, 候选太少。0.5 -> steps=ceil(3/0.5)=6,
+      #     可用环 1.5/2.0/2.5/3.0, 候选数量才够挑。
+      sample_dist: 0.5
+
+      # ---- 候选点缓存/复用 ----
+      reuse_cached_candidates: true
+      cache_robot_move_threshold: 1.0
+      candidate_recompute_period: 1.0
+
+      # ---- 前沿处理 ----
+      # [E] ★ 前沿降采样网格 —— 【绝对不要跟着 resolution 一起调小】!
+      #     代码: cell_size = max(resolution, frontier_attach_grid_size)  (1396 行)
+      #     它是"前沿数量随分辨率变细而爆炸"的【保险丝】: resolution 从 0.15 降到 0.10 后,
+      #     前沿栅格数会涨 2.25 倍, 但降采样到 0.3m 网格后代表点数量【几乎不变】,
+      #     所以 attachFrontiers 里的 raycast 开销不会跟着涨。保持 0.3。
+      frontier_attach_grid_size: 0.3
+      global_frontier_revalidate_max_cells: 5000
+      frontier_visibility_max_viewpoints: 8
+      # [E] 这是【绝对面积】(m²), resolution 一变, 它对应的体素数就变了:
+      #       res 0.15 -> 单体素 0.0225 m² -> 0.1 m² ≈ 4.4 个体素
+      #       res 0.10 -> 单体素 0.0100 m² -> 0.1 m² = 10  个体素  (悄悄变严格 2.25 倍!)
+      #     为保持"过滤掉 ~5 个体素以下的碎前沿"这个原意, 跟着降到 0.05。
+      #     (0.05 / 0.01 = 5 个体素)
+      min_frontier_area: 0.05
+
+      # ---- 候选点筛选 ----
+      viewpoint_gain_threshold: 2.0
+      # [D] 候选点最小间距: local_range 只剩 3m, 1.0 会让整个范围只剩两三个候选,
+      #     选点没得挑。压到 0.6 与 sample_dist(0.5) 匹配。
+      candidate_separation: 0.6
+      # [C] 滤波 min_range 已从 1.0 降到 0.3 (见文件头"盲球必须被清空球覆盖"),
+      #     盲球只剩 0.3m 且被 robot_clear_radius(0.35) 完全强制清空,
+      #     所以这两个下限不再需要为盲球让路, 恢复到正常量级:
+      #     0.8 只是避免"目标就在脚底下"(一到就判定已达成, 来回抖)。
+      min_candidate_dist: 0.8
+      min_robot_frontier_dist: 0.6
+
+      # ================= [G] 不可解前沿黑名单 =================
+      # 治的病: 机器人在屋里来回走好几遍, 某些前沿就是消不掉。
+      # 根因: 有些 unknown 物理上永远观测不到 —— 沙发底下、柜子里、冰箱后面、墙缝。
+      #       激光进不去 -> 它们与自由区的交界永远满足 isFrontier()
+      #       -> unknownGainBeyondFrontier() 在家具内部确实能数到 2~3 个 unknown 体素
+      #       -> gain = 100 x 2~3 = 200~300, 规划器认为"很值得去"
+      #       -> 机器人跑过去还是看不到 -> 前沿依旧 -> 无限循环。
+      # 解法: 机器人已经近距离尽力看过了、它却仍是前沿 -> 判定为"看不进去", 拉黑。
+      unresolvable_frontier_enabled: true
+      # 离前沿多近才算"我尽力看过了"。
+      unresolvable_frontier_probe_dist: 2.0
+      # ★ 两次计数之间的最小【真实秒数】—— 让黑名单与 BT 的 RateController(hz) 解耦。
+      #   没有这一项的话，计数按"每次规划 +1"，而规划频率完全由 BT 的 hz 决定：
+      #     hz=0.33 -> 3s/次  -> 5 次 = 15 秒   (设计意图)
+      #     hz=10   -> 0.1s/次 -> 5 次 = 0.5 秒 (灾难: 机器人半秒内就把身边
+      #                                        还没来得及观测的前沿全部永久拉黑,
+      #                                        一边走一边摧毁前沿地图 -> 彻底不动)
+      #   有了它, 拉黑耗时 = max_attempts x probe_period, 恒定 15 秒, 改 hz 也不受影响。
+      unresolvable_frontier_probe_period: 3.0
+      # [K] ★ 5 -> 8  (实际耗时 = max_attempts x probe_period = 8 x 3.0 = 24 秒)
+      #
+      #   为什么可以/应该放宽 —— 这个黑名单【一直在误杀】:
+      #     在"视点朝向"(docs/viewpoint_orientation.md)修复之前, 机器人走到视点后
+      #     的朝向是【到达时的行进方向】(updatePathOrientations 用路径切线),
+      #     完全可能【背对】它本该观测的前沿。而滤波后只有 ±45° 的前视锥
+      #     -> 一个前沿也看不到 -> 前沿仍在 -> 黑名单计数 +1 -> 15 秒后拉黑。
+      #     但那些前沿【看得见】, 只是没朝对方向! 黑名单在替一个没有朝向的
+      #     视点系统擦屁股。
+      #
+      #   A/B 实测(MATRiX/house2, 同参数同场景):
+      #     无朝向: 黑名单 118 个/分钟
+      #     有朝向: 黑名单  81 个/分钟   (-31%)  <- 证实了误杀
+      #
+      #   朝向修复后, "看得见但没朝对"这个【主要误判来源】已消除, 因此把阈值放宽,
+      #   进一步减少对"其实可解、只是需要多观测几眼"的前沿的误杀。
+      #   仍然甩不掉僵尸前沿(家具内部/柜子里/墙缝) -> 调回 5;
+      #   仍在误杀该探的地方 -> 继续调大到 12。
+      unresolvable_frontier_max_attempts: 8
+
+      # ================= [H] 目标承诺 / 防横跳 =================
+      # 治的病: 探索后期只剩几个零散口袋时, 机器人在它们之间反复横跳、原地纠结。
+      # 根因(两条叠加):
+      #   1) FrontierAStar 每周期都 force_refresh 全量重算候选并选第一名
+      #      (frontier_astar_planner.cpp:65) —— 【零迟滞】。
+      #      ⚠️ 所以 reuse_cached_candidates / cache_robot_move_threshold /
+      #         candidate_recompute_period 这三个参数对 FrontierAStar 是【死参数】,
+      #         它们只对 FrontierCandidate 生效, 而探索 BT 用的是 FrontierAStar。
+      #   2) 地图 10Hz 在变 -> unknownGainBeyondFrontier 的射线穿过的体素在变
+      #      -> 增益在抖 -> 增益相近的两个口袋排名反复翻转。
+      # 解法: 咬住上一轮选中的目标走完, 除非新的最佳【明显】更好才切换。
+      # 自我终止: 走到目标后那片前沿被观测掉 -> 增益归零 -> 候选消失 ->
+      #           匹配失败 -> 自然换目标。不需要额外的"到达判定"。
+      target_commitment_enabled: true
+      # 本轮候选离上轮目标多近才算"同一个目标"(候选每轮重新采样, 点不会完全重合)。
+      target_commitment_match_radius: 1.0
+      # 新的最佳要超出【已承诺目标】这个比例才切换。
+      # 用相对比例而非绝对值: score 量级随前沿数剧烈变化(实测 0~20800), 绝对阈值不通用。
+      # 0.25 = "新目标要好过 25% 才值得掉头"。横跳仍明显 -> 调大到 0.4;
+      #        反应太迟钝(该换目标却不换) -> 调小到 0.15。
+      target_commitment_switch_margin: 0.25
+
+      # ================= [L] 「转向未完成」保护 =================
+      # 治的病: 视点朝向(docs/viewpoint_orientation.md)加上后, 实测发现【它没生效】——
+      #   机器人到达视点、刚开始转向, 5 秒后 RateController 就重规划了。
+      #   此时它离原视点只剩 ~0.2m < min_candidate_dist(0.8) -> 原视点【不再被采样】
+      #   -> 目标承诺按邻近匹配也找不回它 -> 选了个全新候选
+      #   -> NavflexExePathAction 运行中替换 FollowPath 的目标
+      #   -> 机器人【放弃转向】直奔新目标 -> 朝向机制白改了。
+      #
+      # 解法: "位置已到、朝向未到"时, 把上一轮的候选【原样返回】, 锁住目标直到转完。
+      #   控制器的 isGoalReached 本来就要求 xy 和 yaw 都到位才算完成
+      #   (controller_action_costmap_server.cpp: ActionGoalChecker),
+      #   所以只要目标不被换掉, 它自己会把转向做完。
+      #
+      # ⚠️★ 实测【关掉】(false) ★——这个机制看着对, 但和控制器打架:
+      #   锁住目标后, 机器人【已经站在该视点上】, 于是 makeAStarPath 的 start ≈ goal,
+      #   拓扑 A* 退化、返回空 -> 规划失败 43 次。曾试图在规划器里特判、直接吐一条
+      #   "原地转向"的 2 点零长度路径绕过去 —— 规划失败是降到 0 了, 但 MPPI 是
+      #   【路径跟随】控制器, 零长度路径给不出行进方向, 算出来的速度就是 0:
+      #       makeAStarPath success + "moved 1.6e-06 m in 10.0 s"  <- 机器人纹丝不动
+      #   -> 10s 卡困 -> FollowPath abort -> 恢复耗尽 -> BT 直接退出。
+      #   ==> 只是把"规划失败"换成了"执行失败", 更糟。两处都已回退。
+      #
+      # 那朝向靠什么保证?
+      #   1) 候选点自带 yaw (最大覆盖扇形中心), 写进路径末点 -> 控制器的
+      #      ActionGoalChecker 要求 xy 和 yaw 【同时】达标才算完成, 它自己会转完。
+      #   2) 真到了"站在视点上还有前沿要看"的情形, 让 makeAStarPath 【正常失败】,
+      #      BT 的恢复动作 rotate 1.57 会原地转 90° —— 走 behavior server 直接发角速度,
+      #      不经过 FollowPath, 转得动。而且 90° 恰好是一整个前视锥宽度。
+      #   3) viewpoint_horizontal_fov_deg 让增益变诚实, 从根上少了"站着不动干转"的局面。
+      observation_hold_enabled: false
+      # 离视点多近算"位置已到"。★必须 >= 控制器的 default_xy_goal_tolerance(0.20)★,
+      # 否则机器人已被判定到点、正在原地转, 这里却还以为"没到", 白白放行重规划。
+      observation_hold_xy_tol: 0.30
+      # 朝向误差多小算"转到了"。★应与控制器的 default_yaw_goal_tolerance(0.35) 一致★。
+      observation_hold_yaw_tol: 0.35
+      # 最长锁多久(秒)。防止朝向永远转不到(被卡住 / MPPI 转不动)时死锁在这里。
+      # 转 180° 只需 pi/wz_max = 3.14/1.5 ≈ 2.1s, 8s 已是 4 倍余量。
+      observation_hold_timeout: 4.0
+
+      # ================= [G] 全局前沿兜底 =================
+      # 治的病: 附近探完后, 远处还有大片未知区, 但机器人卡死不动。
+      # 根因: 前沿要被"认领"必须 isFrontierVisible 视线可达。拐角后的房间认领不到
+      #       -> candidates 为空 -> frontier_astar_planner.cpp 直接 NO_PATH_FOUND。
+      # 解法: 认领不到 != 走不到。拓扑图是【全局连通】的 ——
+      #       兜底直接把最近的全局前沿当导航目标, 用拓扑 A* 走过去,
+      #       走近之后局部逻辑自然接管。
+      global_fallback_enabled: true
+      # 最多试几个最近的全局前沿(每个都要跑一次拓扑 A*, 太多会拖慢规划)。
+      global_fallback_max_targets: 5
+      # 在前沿周围多大范围内找"站得住"的视点(前沿本身贴墙/贴家具, 站不住)。
+      global_fallback_viewpoint_radius: 1.5
+      # [B] 200m² 房间同时存在的有效候选不会太多, 5~10 足够, 省掉排序/评分开销。
+      min_candidate_count: 0
+      max_candidate_count: 5
+
+      # ---- 增益与代价（选点策略）----
+      frontier_gain: 100.0
+      # [H] 单个前沿的增益随"前沿离视点多远"衰减的系数:
+      #       decay = max(0.25, 1 / (1 + frontier_distance_weight x dist))
+      #     0.0 = 完全不衰减(decay 恒为 1.0)。原本这个键【在本文件里缺失】,
+      #     靠代码默认值(0.0)兜底 —— 显式写出, 避免哪天代码默认值改了静默变化。
+      #     ⚠️ 它影响 information_gain 的【量纲】, 而 distance_weight 是按量纲标定的。
+      #        改了它必须重新标定 distance_weight (见下方标定方法)。
+      frontier_distance_weight: 0.0
+      unknown_gain_range: 1.5
+      unknown_gain_step: 0.2
+      min_unknown_gain: 0.0
+      # [H] ★★ 这个值【必须实测标定】, 不能拍脑袋, 也【不能跨场景照搬】★★
+      #
+      #  为什么: score = information_gain - distance_weight x dist - ...
+      #          而 information_gain ≈ 每候选的前沿数 x frontier_gain(100) x unknown_gain
+      #          它的【量纲】随场景和参数剧烈变化 —— 距离项必须和它同一个数量级才有意义。
+      #
+      #  历史教训(都是实测出来的, 不是推的):
+      #    · 上游默认 0.2  -> 14.5m 的距离惩罚只有 2.9, 而 score 中位数 ~12000
+      #      => 距离项占 0.02%, 【纯粹是噪声】, 规划器只看增益、完全不管远近
+      #      => 探索后期两个增益相近的口袋让排名反复翻转 -> 机器人横跳
+      #    · 本地全向仿真实测中位数 16500 -> 标定出 200
+      #    · 但 MATRiX/house2 实测只有 12372 (多房间遮挡多, 一个视点看到的前沿远少于开阔地)
+      #      => 我按几何估算的 20000 偏高 38% —— 【几何推算不可靠, 必须实测】
+      #
+      #  ⚠️ 下列任一参数改动, 都会改变 score 量纲, 必须【重新实测标定】:
+      #      candidate_visibility_range / max_range  (改 attach_range -> 每候选前沿数变)
+      #      frontier_attach_grid_size / resolution  (改前沿点密度)
+      #      frontier_gain / unknown_gain_range / frontier_distance_weight
+      #
+      #  标定方法(跑 2 分钟即可):
+      #    grep -o "selected candidate .*score=[-0-9.]*" <导航栈日志> \
+      #      | grep -o "score=[-0-9.]*" | cut -d= -f2 | sort -n \
+      #      | awk '{a[NR]=$1} END {print "中位数 =", a[int(NR/2)]}'
+      #    distance_weight = 中位数 / 82
+      #      (82 的来历: 令"多跑 9m 的代价 ≈ 中位分的 11%" -> 0.11/9 -> 1/82。
+      #       想更愿意远征 -> 除以 160; 想更贪近 -> 除以 40。)
+      #
+      #  ★ 当前值来自 MATRiX/house2 【实测】(attach_range=5.0, 同一探索阶段的前 24 个样本):
+      #      score 中位数 = 17535  ->  17535 / 82 = 214
+      #
+      #    顺带一个【反直觉】的实测发现(推翻了我的几何预测):
+      #      attach_range 9.5 -> 5.0 后, 每候选挂的前沿数【从 33 涨到 70】(翻倍), score 也涨 41%。
+      #      原因: 前沿是【独占分配】的(每个前沿只归最近的可见视点), 而视点池大小受
+      #            attach_range 影响 —— 旧候选的复用半径 = local_range + attach_range:
+      #              9.5 -> 复用半径 14.5m -> 视点池【大】-> 前沿被【摊薄】到很多视点上
+      #              5.0 -> 复用半径 10.0m -> 视点池【小】-> 前沿【集中】到少数视点
+      #      总前沿数没变, 只是分配得更集中 —— 候选更"有分量", 而不是一堆稀释的弱候选。
+      #
+      # ══════════════════════════════════════════════════════════════════════
+      # ★ 2026-07-14 重新标定: 214.0 -> 450.0
+      #
+      # 为什么要重标: 打开 viewpoint_horizontal_fov_deg(90°) 后, information_gain
+      # 只剩【可见那一扇】—— 中位增益从 ~17535 掉到 4700 (缩水 3.7 倍)。
+      # 214 是按【旧的虚高增益】定的, 相对新量级就太小了 -> 距离几乎不起作用。
+      #
+      # 标定依据 (595 个候选 / 89 个规划轮次的实测数据, calibration_log_enabled):
+      #   探索的真实目标是【单位时间的信息增益最大】, 时间主要花在路上 -> 最大化 G/d。
+      #   这是线性分式目标, 而 score = G - w*d 是线性的。桥梁是 Dinkelbach:
+      #   max(G - λ*d) 的最优 λ* 恰好等于最优解处的 G/d, 即【机器人实际达到的每米增益】。
+      #
+      #   median(G)/median(d) = 4700/3.92 = 1198   <- 理论不动点
+      #   IQR(G)/IQR(d)       = 1032               <- 离散度匹配, 交叉验证
+      #   但两者都【忽略了观测本身的固定耗时】(到达后要停/转/等地图更新),
+      #   计入后 w = G/(d + v*t_obs) ≈ 4700/(3.92+0.5*5) ≈ 730。
+      #
+      # 最终用【反事实重排】在真实数据上定值 —— 同一轮次不同 w 会选中哪个候选:
+      #   w=214 : 为了 +3% 的增益【多走 2.50 m】     <- 过度长途奔袭, 亏本买卖
+      #   w=450 : 每米增益 2019 -> 3029 (+50%), 仍保留 +1.18 m 的"为增益绕路"
+      #   w>=600: 后半程"多走的距离"塌到 +0.00 m     <- 退化成【纯最近邻】,
+      #           增益项彻底失去话语权 -> 残局只会啃最近的, 探索不完整张图
+      #
+      # ⚠️ 为什么按【后半程】选而不是全程: 地图越满、增益越小(5250 -> 4200),
+      #    而 w 是固定的 -> 同一个 w 在残局的相对权重会【自动变大】。
+      #    w=600 在前半程还能保持 +1.29 m 的绕路, 到后半程就已经是纯最近邻了。
+      #    所以必须按【最严苛的后期】定值, 留出增益继续缩水的余量。
+      #
+      # 实测验证 (w=450 跑 ~7 分钟): 朝向转到位 56% -> 100%, 卡困 0, BT退出 0,
+      #    106 次规划成功。规划失败率与 w=214 持平(42% vs 43%) —— 失败的真正原因是
+      #    start_edges=0(机器人接不进拓扑图), 与本权重【无关】, 且呈【突发】而非稳态:
+      #    55 次失败全挤在同一个 30 秒窗口, 之后 270 秒规划全部成功。
+      #
+      #    ⚠️ 注意: "选中点的中位距离"在不同 run 之间【不可比】—— 它取决于当时的候选
+      #    分布(地图状态), 而每次重启导航栈 UFO 图都从零重建、机器人位置也不同。
+      #    唯一有效的对照是上面那个【同一份数据、不同 w】的反事实重排。
+      #
+      # 【结构性隐患, 尚未解决】: 固定的线性权重【本质上无法】适应漂移的增益量级。
+      #    根治办法是把分数【无量纲化】, 例如 score = G/median(G) - w'*d,
+      #    这样 w' 只有 1/米 的量纲, 与增益尺度无关, 残局也不会自动塌向最近邻。
+      #    改动不大, 但会动到评分核心, 需要另做一轮 A/B。
+      # ══════════════════════════════════════════════════════════════════════
+      distance_weight: 450.0
+
+      visited_radius: 1.5
+      # [H] ⚠️ 只占 score 中位数(17535)的 6% —— 它本该阻止机器人回头蹭已探区域,
+      #     但在上万的增益面前几乎无效。若观察到机器人在已探区域来回蹭, 提到 5000 (约 30%)。
+      visited_penalty: 1000.0
+      # [F] ★ 必须跟着 resolution 一起调! known_penalty = known_gain_penalty x
+      #     (visited_radius 圆盘内的自由栅格数), 而栅格数 = π·r²/resolution² 是 O(1/res²):
+      #       res 0.15 -> ~314 格 -> 惩罚 6.3
+      #       res 0.10 -> ~707 格 -> 惩罚 14.1  (悄悄涨 2.25 倍!)
+      #     它惩罚"位于已知区域的视点", 而收尾残余角落的视点恰恰都在已知区 -> 自己绊自己。
+      known_gain_penalty: 0.01
+
+      # ---- 几何/安全 ----
+      # [A4] 机器人外接半径 = sqrt(0.28² + 0.19²) ≈ 0.34 -> 取 0.35
+      # ‼️ 同时是【强制清空球】的半径(frontier_tools.cpp:515-532), 必须 >= 滤波 min_range(0.3)
+      robot_clear_radius: 0.35
+      # [B] 必须为 0！>0 会拒绝"靠近未知区"的视点, 而前沿视点天然贴着未知区, 探索会直接瘫痪。
+      unknown_clear_radius: 0.0
+      viewpoint_free_z_min: 0.0
+      viewpoint_free_z_max: 0.8
+      viewpoint_free_z_step: 0.1
+      # [A4] xgb: base_link -> lidar 的 TF z (MATRiX config.json 实测 0.17598)。
+      #      注意这是【TF 偏移量】, 与狗站多高无关(站立时 base_link 离地约 0.33m)。
+      sensor_height: 0.176
+      # [C] 两个 slope 都由点云滤波的【垂直视场 v_angle=±29.3°】唯一确定, 不是自由调参:
+      #     · frontier_slope_deg : |Δz|/dist_xy < tan(θ), 判断"前沿相对【机器人】的仰角"。
+      #       超过传感器垂直视场的前沿【物理上永远看不到】, 设大了(如 89°)会把大量
+      #       永不可观测的点当成有效前沿, 机器人白跑。
+      #     · viewpoint_slope_deg: 同样判据但相对【视点】——"机器人站到该视点后,
+      #       这个前沿在不在它的垂直视场内"。
+      #     换滤波角度必须同步改这两个值。
+      frontier_slope_deg: 29.0
+      viewpoint_slope_deg: 29.0
+
+      # ★【视点的水平视场角】(度, 全宽)。= 滤波的 h_angle 全宽: ±45° -> 90.0
+      #
+      #   上面两个 slope 只管【垂直】方向。水平方向此前【一个判据都没有】——
+      #   一个视点可以认领它周围 360° 上的所有前沿, 可机器人站在那儿
+      #   【一次只看得见正前方 90°】。于是:
+      #     · 增益虚高: 认领 40 个散布 200° 的前沿, 实际一次只观测得到其中 ~1/4
+      #     · 排序失真: "前沿散得开"的视点压过"前沿聚成一簇"的视点, 但后者才高效
+      #     · 朝向失真: 质心可能落在两簇前沿【中间的那堵墙】上, 转过去两边都看不全
+      #
+      #   打开后, 规划器把每个视点的前沿按方位角排序, 用一个 90° 宽的窗口在圆周上滑,
+      #   取增益之和最大的那一扇: 只有扇内的算增益, 视点朝向 = 扇形中心。
+      #
+      #   360.0 = 关闭裁剪(全向雷达)。改滤波的 h_angle 必须同步改这里。
+      #   ⚠️ 打开后 information_gain 的量级会【下降】(只剩可见的那一扇),
+      #      distance_weight(214) 是按旧量级标定的, 需要重新观察是否要下调。
+      viewpoint_horizontal_fov_deg: 90.0
+
+      # 【标定用】打开后每轮把每个候选的 "[CAL] gain=... dist=..." 打进日志,
+      # 供离线重新标定 distance_weight (score = gain - w*dist - penalties,
+      # 光看 score 反推不出两项各占多少)。平时【保持 false】, 否则日志量很大。
+      calibration_log_enabled: false
+
+      # ---- 拓扑图（全局路网, 跨轮累积生长）----
+      topology_enabled: true
+      topology_initialization_period: 0.5
+      topology_update_distance: 0.8
+      # [F] 必须 >= local_range(5.0), 否则远处视点周围没有拓扑节点 -> 接不进图 -> 规划失败。
+      topology_update_radius: 6.0
+      # [D] ⚠️ 代码 784 行: connection_radius = max(node_spacing, topology_connection_radius)
+      #     —— node_spacing 是【下限】。想让边变短, node_spacing 必须先小于目标边长,
+      #     否则设了 connection_radius=1.2 也会被 max() 顶回 node_spacing 的值。
+      topology_node_spacing: 0.6
+      topology_local_node_spacing: 0.35
+      # [J] 0.35 -> 0.22: 建【节点】的间隙要求。原来 0.35 意味着窄道里根本放不下节点
+      #     (通道需 >= 0.70m)。降到 0.22 后 >= 0.44m 的通道就能放节点。
+      #     注意它要 <= topology_edge_clearance(0.25), 否则放得下节点却连不上边, 白搭。
+      topology_min_clearance: 0.22
+      topology_local_min_clearance: 0.2
+      topology_max_clearance: 2.0
+      # [D] 边长上限。生效值 = max(node_spacing 0.6, 1.2) = 1.2
+      #     (注: 边本来就不会穿墙 —— frontier_tools.cpp:1012 建边时已用 isKnownFree2D()
+      #      要求整条边走在已知自由空间上。)
+      topology_connection_radius: 1.2
+      # [J] ★ 拓扑图的【连通性间隙】—— 与 robot_clear_radius(0.35) 解耦的新参数。
+      #   治的病: house2 厨房窄道机器人过得去, 拓扑图却连不上(窄道里连节点都没有)。
+      #   数字对不上:
+      #     建节点/建边原本都要求 0.35m 间隙 -> 通道必须 >= 2x0.35 = 0.70m
+      #     机器人内接半径只有 0.19m (footprint 0.56x0.38) -> 实际只需 >= 0.38m
+      #     => 0.38~0.70m 的通道是"过得去但连不上"的【死区】
+      #   为什么不能直接调小 robot_clear_radius: 它是三重复用的 ——
+      #     · 强制清空球半径, 必须 >= 滤波 min_range(0.3), 否则周身留"未知壳"(永久伪前沿)
+      #     · 视点避障判据, 调小会让视点贴墙
+      #   为什么可以取到 0.25(仅比内接半径 0.19 大 0.06):
+      #     拓扑边只是【路径引导】, 真正的避障由 MPPI 用 local_costmap + 精确 footprint 完成
+      #     (CostCritic: consider_footprint=true, collision_cost=1e6)。
+      #   => 0.25 让 >= 0.50m 的通道能连通。若厨房窄道还是连不上, 继续降到 0.22
+      #      (通道 >= 0.44m, 但只剩 0.03m 余量, 四足行走摆动可能过不去)。
+      topology_edge_clearance: 0.25
+      # [F] ★ 起点/目标【接入拓扑图】的半径 (代码 1126/1155 行)。必须 >= local_range(5.0),
+      #     否则最远处的视点找不到可接入的拓扑节点 -> 表现为"候选明明有, 却规划不出路径"。
+      topology_attach_radius: 6.0
+      topology_z_tolerance: 0.5
+      topology_initial_min_nodes: 8
+      topology_max_samples: 10000
+      # [D] ★ 必须跟着 node_spacing 一起抬! 200 m² / (0.6m)² ≈ 555 个节点,
+      #     一旦触顶拓扑图就【停止生长】, 探索会莫名其妙断掉且很难查。2000 留 3.5 倍余量。
+      topology_max_nodes: 2000
+      # [J] 4 -> 8: 边是【按长度升序】处理的, 每个节点最多 max_neighbors 条边。
+      #     node_spacing=0.6 很密 -> 开阔处一个节点周围有 6~8 个邻居在 connection_radius(1.2) 内
+      #     -> 4 个名额被【最短的本地边】抢光 -> 穿过窄道的【较长的桥梁边】被饿死。
+      #     放宽到 8 给桥梁边留名额。不会让边穿墙(isKnownFree2D 仍然把关)。
+      topology_max_neighbors: 8
+
+    FrontierCandidate:
+      plugin: "navflex_frontier_planner/CandidateFrontierPlanner"
+    FrontierAStar:
+      plugin: "navflex_frontier_planner/FrontierAStarPlanner"
+    GridBased:
+      plugin: "nav2_navfn_planner/NavfnPlanner"
+      tolerance: 0.5
+      use_astar: false
+      allow_unknown: true
+    Smac2D:
+      plugin: "nav2_smac_planner/SmacPlanner2D"
+      tolerance: 0.5
+      downsample_costmap: false
+      downsampling_factor: 1
+      cost_travel_multiplier: 2.0
+      allow_unknown: true
+      max_iterations: 1000000
+      max_on_approach_iterations: 1000
+      max_planning_time: 2.0
+      use_final_approach_orientation: false
+      smoother:
+        max_iterations: 1000
+        w_smooth: 0.3
+        w_data: 0.2
+        tolerance: 1.0e-10
+        do_refinement: true
+        refinement_num: 2
+
+smoother_server:
+  ros__parameters:
+    use_sim_time: False
+    smoother_plugins: ["simple_smoother"]
+    simple_smoother:
+      plugin: "nav2_smoother::SimpleSmoother"
+      tolerance: 1.0e-10
+      max_its: 1000
+      do_refinement: True
+
+robot_state_publisher:
+  ros__parameters:
+    use_sim_time: False
+
+waypoint_follower:
+  ros__parameters:
+    use_sim_time: False
+    loop_rate: 20
+    stop_on_failure: false
+    waypoint_task_executor_plugin: "wait_at_waypoint"
+    wait_at_waypoint:
+      plugin: "nav2_waypoint_follower::WaitAtWaypoint"
+      enabled: True
+      waypoint_pause_duration: 200
+
+velocity_smoother:
+  ros__parameters:
+    use_sim_time: False
+    smoothing_frequency: 20.0
+    scale_velocities: False
+    feedback: "OPEN_LOOP"
+    # [B] 与 MPPI 的 vx_max/wz_max 保持一致, 否则平滑器会成为新的速度瓶颈。
+    max_velocity: [0.6, 0.35, 1.5]
+    min_velocity: [-0.6, -0.35, -1.5]
+    max_accel: [2.5, 1.0, 3.2]
+    max_decel: [-2.5, -1.0, -3.2]
+    odom_topic: "/odom/mujoco_odom"   # [A3] MATRiX 里程计
+    odom_duration: 0.1
+    deadband_velocity: [0.0, 0.0, 0.0]
+    velocity_timeout: 1.0

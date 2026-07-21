@@ -1,0 +1,238 @@
+<?xml version="1.0"?>
+<!--
+  fael_frontier_exploration_zsl1_house2_matrix_wm_gate.xml
+    MATRiX · xgb(zsl1) 四足 · house2 住宅 · 前沿自主探索 + 【世界模型视点闸门】
+
+  这是在 fael_frontier_exploration_zsl1_house2_matrix.xml 基础上【另起的一套】,
+  原文件与原探索框架代码【一律未改动】。新增能力全部来自新包 navflex_wm_bt_nodes
+  的两个节点(NavflexEvaluatePlanAction / NavflexPathEndPose)。
+
+  配套文件:
+    navflex_bringup/params/nav2_params_zsl1_house2_matrix.yaml              (不变)
+    navflex_autonomous_exploration_bt/params/
+        fael_exploration_bt_navigator_zsl1_house2_matrix_wm_gate.yaml       (新, 多加 2 个 plugin_lib)
+    navflex_world_model/... (世界模型 + 判决器服务, 必须单独启动)
+    docs/world_model_viewpoint_gate.md                                      (设计与运行说明)
+
+  ===========================================================================
+  ★ 核心思想: propose(便宜) / verify(昂贵) 级联
+  ───────────────────────────────────────────────────────────────────────────
+    · 视点【排序/选择】仍然在 FrontierAStar planner 内部完成(几何评分, 便宜)。
+    · 世界模型【不排序 N 个候选】—— 一次 rollout 要 seconds~minutes、占几十 GB GPU,
+      逐个推演在 5s 一轮的探索节奏下不可行。
+    · 所以世界模型只对 planner 选出的【那一个 top 视点】做 go/no-go:
+        approve            -> 执行这条已被"想象验证过"的路径
+        reject/其它        -> 否决, 原地转身换视野, 下一轮重新提议一个新候选
+      判决器(VLM)判的是"沿这条路走过去安不安全、通不通", 不是任务完成度。
+  ===========================================================================
+  ★ 为什么这棵树用 Sequence 而【不用】原框架的 PipelineSequence
+  ───────────────────────────────────────────────────────────────────────────
+    PipelineSequence 每 tick 都从头重评各阶段, 允许"执行中持续重规划"。但世界模型
+    闸门要 RUNNING 好几分钟, 如果这期间 GetPath 被重新 tick、重规划出一条【新的】
+    {frontier_path}, 就会出现: 闸门批准的是"去 A 视点的计划", 而 ExePath 执行的却是
+    "去 B 视点的新计划" —— 判决与执行【对不上】。
+    改用普通 Sequence: 子节点 SUCCESS 后不再被重 tick, RUNNING 时只推进当前子节点。
+    => GetPath 出一次计划后就【冻结】, 判决和执行的是【同一条】路径。
+    代价: 失去"执行途中重规划"。但闸门本就让每轮变成分钟级的审慎决策, 这个代价可接受,
+    而且换来了判决/执行的一致性。动态避障仍由 MPPI + 360° local_costmap 兜底(与原版同)。
+  ===========================================================================
+  ★★ 必读: 不配世界模型/判决器, 这棵树会【冻住】★★
+  ───────────────────────────────────────────────────────────────────────────
+    NavflexEvaluatePlanAction 调 navflex_world_model/evaluate 服务。若该服务:
+      · 没启动            -> 服务不可达 -> 闸门 RUNNING 直到 server_timeout -> 否决
+      · backend=null      -> 无法想象   -> unavailable -> 否决
+      · critic=null       -> 判决器【从不批准】 -> 否决
+    在 pass_verdicts="approve"(严格)下, 上述任一情况都会让【每个视点都被否决】,
+    机器人永远不执行任何前沿 = 探索冻住。必须用【真实】backend(lingbot)+ critic(claude/
+    openai_compat)启动世界模型节点。运行配方见 docs/world_model_viewpoint_gate.md。
+
+    想先只验证 BT 接线(不真跑世界模型)? 把下面 NavflexEvaluatePlanAction 的
+    pass_verdicts 临时设成 "approve,needs_confirmation,unavailable" —— 服务缺席时
+    也会放行(等价于旁路闸门)。★仅供接线自测, 切勿用于真实运行★。
+  ===========================================================================
+  ★ server_timeout 陷阱
+  ───────────────────────────────────────────────────────────────────────────
+    BtServiceNode 把 server_timeout 当作整个服务调用的【硬上限】, 一到点就返回 FAILURE
+    (= 一次假否决)。真实 rollout 要几分钟, 所以下面 NavflexEvaluatePlanAction 的
+    server_timeout 设成 900000ms(15min)。等待期间节点返回 RUNNING, 树继续 tick,
+    机器人原地不动等判决 —— 这正是我们要的。世界模型节点内部也有自己的超时
+    (action_timeout 30s 规划 / backend_timeout 600s 想象 / critic_timeout 120s)。
+  ===========================================================================
+  与原树相同的部分: 前沿检测/视点/滤波契约完全不变(见原 XML 与 nav2 params 注释);
+    前沿视场 h±45° v±29.3°, GetPath 用 FrontierAStar, 恢复动作 rotate 1.57 = 一整个前视锥。
+  ===========================================================================
+-->
+<root main_tree_to_execute="MainTree">
+  <BehaviorTree ID="MainTree">
+    <ForceSuccess>
+      <Repeat num_cycles="-1">
+        <Control ID="RecoveryNode" name="ExploreRecovery" number_of_retries="3">
+
+          <!-- 普通 Sequence(非 PipelineSequence): 计划一旦生成即冻结, 见文件头说明 -->
+          <Control ID="Sequence" name="ExploreOneFrontier">
+
+            <!-- [1] 便宜的几何提议器: FrontierAStar 选出 top 视点并规划到它的路径。
+                 失败(找不到前沿/规划不出)时: 清图 + 转 90°(换一整个前视锥) + 等 1s 让
+                 新视野点云灌进 UFO 图, 再重试; 3 次仍失败 -> 触发下面的全局恢复。 -->
+            <Control ID="RecoveryNode" name="ComputeFAELFrontierPath" number_of_retries="3">
+              <Action ID="NavflexGetPathAction"
+                      goal="{goal}"
+                      message="{planner_message}"
+                      outcome="{planner_outcome}"
+                      path="{frontier_path}"
+                      planner_id="FrontierAStar"
+                      server_name="compute_path_to_pose"
+                      server_timeout="5000"
+                      tolerance="0.5"
+                      use_start="false"/>
+              <Control ID="Sequence" name="RefreshFrontierObservations">
+                <Action ID="ClearEntireCostmap"
+                        name="ClearGlobalCostmapAfterPlanningFailure"
+                        server_timeout="5000"
+                        service_name="global_costmap/clear_entirely_global_costmap"/>
+                <Action ID="NavflexRecoveryAction"
+                        behavior="cmd_behavior"
+                        command="rotate 1.57"
+                        message="{planner_recovery_rotate_message}"
+                        outcome="{planner_recovery_rotate_outcome}"
+                        server_name="behavior_action"
+                        server_timeout="5000"
+                        used_plugin="{planner_recovery_rotate_plugin}"/>
+                <Action ID="NavflexRecoveryAction"
+                        behavior="cmd_behavior"
+                        command="wait 1.0"
+                        message="{planner_recovery_wait_message}"
+                        outcome="{planner_recovery_wait_outcome}"
+                        server_name="behavior_action"
+                        server_timeout="5000"
+                        used_plugin="{planner_recovery_wait_plugin}"/>
+              </Control>
+            </Control>
+
+            <!-- [2] 取路径末点作为待判决的视点(位置 + 观测朝向)。
+                 这样【不必修改】原生 NavflexGetPathAction。空路径 -> FAILURE ->
+                 整轮失败 -> 触发全局恢复(等同"没有可去的视点")。 -->
+            <Action ID="NavflexPathEndPose"
+                    path="{frontier_path}"
+                    goal="{candidate_goal}"/>
+
+            <!-- [3] 世界模型视点闸门 + 执行, 用 Fallback 组合:
+                   · 子[a] 批准分支: 闸门 approve -> 执行【被想象验证过的那条】路径
+                   · 子[b] 否决恢复: 闸门 veto(或执行失败) -> 清图 + 转 90° 换视野
+                                     -> Fallback 返回 SUCCESS -> 本轮干净结束
+                                     -> 下一轮 Repeat 重新 GetPath, 提议一个【新】候选
+                 用 Fallback 而非 RecoveryNode: 否决后【不重跑昂贵的闸门】判同一个视点,
+                 而是让 planner 下轮自然换一个。 -->
+            <Fallback name="ViewpointGateThenExecute">
+
+              <!-- [a] 批准 -> 执行 -->
+              <Control ID="Sequence" name="ApprovedExecution">
+                <Action ID="NavflexEvaluatePlanAction"
+                        goal="{candidate_goal}"
+                        instruction="机器人正在自主探索一栋室内住宅。请判断：沿这条路径前往该观测视点是否安全、可通行——不会撞墙或家具、不会跌落、通路顺畅。只有明确安全时才批准。"
+                        frame_num="0"
+                        dry_run="false"
+                        pass_verdicts="approve"
+                        verdict="{wm_verdict}"
+                        confidence="{wm_confidence}"
+                        reason="{wm_reason}"
+                        service_name="navflex_world_model/evaluate"
+                        server_timeout="900000"/>
+                <!-- 只有 approve 才会走到这里。执行被判决过的那条 {frontier_path}。 -->
+                <Control ID="RecoveryNode" name="FollowFAELFrontierPath" number_of_retries="2">
+                  <Action ID="NavflexExePathAction"
+                          angle_to_goal="{controller_angle_to_goal}"
+                          controller_id="FollowPath"
+                          dist_to_goal="{controller_dist_to_goal}"
+                          feedback_distance_to_goal="{controller_feedback_distance_to_goal}"
+                          feedback_message="{controller_feedback_message}"
+                          feedback_outcome="{controller_feedback_outcome}"
+                          feedback_speed="{controller_feedback_speed}"
+                          final_pose="{controller_final_pose}"
+                          message="{controller_message}"
+                          outcome="{controller_outcome}"
+                          path="{frontier_path}"
+                          server_name="follow_path"
+                          server_timeout="3000"
+                          xy_goal_tolerance="0.0"
+                          yaw_goal_tolerance="0.0"/>
+                  <Control ID="Sequence" name="RecoverFollowPath">
+                    <Action ID="ClearEntireCostmap"
+                            name="ClearLocalCostmapAfterFollowFailure"
+                            server_timeout="3000"
+                            service_name="local_costmap/clear_entirely_local_costmap"/>
+                    <Action ID="NavflexRecoveryAction"
+                            behavior="cmd_behavior"
+                            command="linear -0.3"
+                            message="{controller_recovery_back_message}"
+                            outcome="{controller_recovery_back_outcome}"
+                            server_name="behavior_action"
+                            server_timeout="3000"
+                            used_plugin="{controller_recovery_back_plugin}"/>
+                    <Action ID="NavflexRecoveryAction"
+                            behavior="cmd_behavior"
+                            command="rotate -1.57"
+                            message="{controller_recovery_rotate_message}"
+                            outcome="{controller_recovery_rotate_outcome}"
+                            server_name="behavior_action"
+                            server_timeout="3000"
+                            used_plugin="{controller_recovery_rotate_plugin}"/>
+                  </Control>
+                </Control>
+              </Control>
+
+              <!-- [b] 否决恢复: 清图 + 转 90° 换视野, 然后本轮 SUCCESS 结束(不触发全局恢复)。
+                   下一轮 GetPath 会因机器人已转向/地图已变而提议一个新的 top 视点。 -->
+              <Control ID="Sequence" name="ViewpointVetoRecovery">
+                <Action ID="ClearEntireCostmap"
+                        name="ClearGlobalCostmapAfterVeto"
+                        server_timeout="5000"
+                        service_name="global_costmap/clear_entirely_global_costmap"/>
+                <Action ID="NavflexRecoveryAction"
+                        behavior="cmd_behavior"
+                        command="rotate 1.57"
+                        message="{veto_recovery_rotate_message}"
+                        outcome="{veto_recovery_rotate_outcome}"
+                        server_name="behavior_action"
+                        server_timeout="5000"
+                        used_plugin="{veto_recovery_rotate_plugin}"/>
+              </Control>
+
+            </Fallback>
+
+          </Control>
+
+          <!-- 全局恢复: 只有当【找不到任何可去的视点】(GetPath 3 次失败 或 空路径)时才触发。
+               清双图 + 原地转 180° + 等 2s, 然后重试整轮。也是"探索接近完成"的自然收尾。 -->
+          <Control ID="RoundRobin" name="ExploreGlobalRecovery">
+            <Action ID="ClearEntireCostmap"
+                    name="ClearGlobalCostmap"
+                    server_timeout="3000"
+                    service_name="global_costmap/clear_entirely_global_costmap"/>
+            <Action ID="ClearEntireCostmap"
+                    name="ClearLocalCostmap"
+                    server_timeout="3000"
+                    service_name="local_costmap/clear_entirely_local_costmap"/>
+            <Action ID="NavflexRecoveryAction"
+                    behavior="cmd_behavior"
+                    command="rotate 3.14"
+                    message="{global_recovery_rotate_message}"
+                    outcome="{global_recovery_rotate_outcome}"
+                    server_name="behavior_action"
+                    server_timeout="3000"
+                    used_plugin="{global_recovery_rotate_plugin}"/>
+            <Action ID="NavflexRecoveryAction"
+                    behavior="cmd_behavior"
+                    command="wait 2.0"
+                    message="{global_recovery_wait_message}"
+                    outcome="{global_recovery_wait_outcome}"
+                    server_name="behavior_action"
+                    server_timeout="3000"
+                    used_plugin="{global_recovery_wait_plugin}"/>
+          </Control>
+
+        </Control>
+      </Repeat>
+    </ForceSuccess>
+  </BehaviorTree>
+</root>

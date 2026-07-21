@@ -1,0 +1,201 @@
+<?xml version="1.0"?>
+<!--
+  fael_frontier_exploration_zsl1_house2_matrix.xml
+    MATRiX · xgb(zsl1) 四足 · house2 住宅 · 前沿自主探索行为树
+
+  配套文件:
+    navflex_bringup/params/nav2_params_zsl1_house2_matrix.yaml
+    navflex_autonomous_exploration_bt/params/fael_exploration_bt_navigator_zsl1_house2_matrix.yaml
+
+  结构与 fael_frontier_exploration.xml 相同:
+    Repeat(∞)
+      └ RecoveryNode ExploreRecovery
+          ├ PipelineSequence ExploreOneFrontier
+          │   ├ RateController -> RecoveryNode -> NavflexGetPathAction(FrontierAStar)
+          │   └ RecoveryNode -> NavflexExePathAction(FollowPath)
+          └ RoundRobin ExploreGlobalRecovery (清 costmap / 原地旋转 / 等待)
+
+  ===========================================================================
+  ★ 两条数据通路不同，别搞混（这是本 BT 所有改动的前提）:
+      costmap  订阅 /livox/lidar          = mid360 原始点云, 【360° 水平】
+                -> 避障/后退是有观测的, 不是盲的
+      frontier 订阅 /livox/lidar/filtered = 滤波后, 【只有正前方 90° 锥】
+                (h ±45°, v ±29.3°, range 1.0~10.0)
+                -> 【UFO 地图 / 前沿检测】只看得见正前方, 必须靠转身补全
+
+  相对原版的改动:
+
+  1) RateController hz = 0.2 (与原版一致, 重规划周期 5s)
+     ⚠️ 曾经调到 0.33 甚至 10, 都是【误诊】—— 见下面的"重要教训"。
+
+     ★★ 重要教训: 不要因为"规划频率异常"就来改这里 ★★
+     曾经观察到:
+       · BT 报 "tick rate 100.00 was exceeded"
+       · 实测规划频率 1.14 Hz, 而 RateController 设定是 0.2 Hz (超出 5.7 倍!)
+       · 84% 的路径长度 < 0.25m (中位数只有 4 厘米)
+     当时怀疑是 RateController 或 BT 结构的问题。【错了】。
+
+     真正的根因在【前沿规划器】, 不在 BT:
+       视点(Candidate)【只有位置、没有朝向】, 而 makeAStarPath 把路径末点朝向
+       设成"到达时的行进方向"(路径切线) -> 机器人可能【背对】它该观测的前沿停下
+       -> 滤波后只有 ±45° 前视锥 -> 一个前沿也看不到 -> 前沿仍在
+       -> 下一轮又选【同一个视点】-> 但机器人已经站在上面了 -> 路径长度 ≈ 0
+       -> FollowPath 瞬间"到达" -> PipelineSequence 完成 -> Repeat 开新一轮
+       -> 【RateController 被重新初始化, 计时器归零】-> 立刻再次规划 -> 死循环
+     所以 RateController 的限速【形同虚设】, 但这是【症状】不是病因。
+
+     修复(给 Candidate 加朝向, 详见 docs/viewpoint_orientation.md)之后, A/B 实测:
+       中位路径长度  0.04m -> 5.43m
+       退化路径占比  84%   -> 1%
+       实际规划频率  1.14Hz -> 0.17Hz  (回到设定值)
+     ==> 根因已除, 【不要再动 BT 的 hz】。hz=0.2 就是对的。
+
+  2) ComputeFAELFrontierPath 的 number_of_retries: 2 -> 3
+     规划失败(找不到前沿)时的恢复动作是 rotate 1.57(=90°)。
+     因为【前沿视场】恰好也是 90°, 每转一次正好换一整个新的前沿视野。
+     retries=3 -> 最多扫 3x90° = 270°, 接近环视一圈, 大幅提高"转一圈就能找到前沿"的概率。
+     (原版 retries=2 只能扫 180°, 背后那 90° 的前沿永远发现不了)
+
+  3) 所有 server_timeout: 1000 -> 3000
+     Zenoh 跨容器(nav <-> matrix0019)的 action 往返明显慢于本地 DDS,
+     1000ms 容易误判为服务超时而触发不必要的恢复。5000 的保持不变。
+
+  (后退距离 linear -0.3 与原版一致: costmap 是 360° 的, 后退并非盲退。)
+  ===========================================================================
+  ⚠ 容差陷阱 (xy_goal_tolerance / yaw_goal_tolerance 都保持 0.0):
+     controller_action_costmap_server.cpp:381 —
+         use_default = (xy_goal_tolerance == 0.0f && yaw_goal_tolerance == 0.0f);
+     是【&&】: 必须两个【同时】为 0, 才回退到参数文件里的
+     default_xy_goal_tolerance(0.20) / default_yaw_goal_tolerance(0.35)。
+     若只填其中一个(如 xy=0.3, yaw 留 0.0), use_default 变 false,
+     yaw 容差就真的成了 0 弧度 -> FollowPath 永远到不了终点、一直转。
+     => 要改容差, 请改参数文件里的 default_*, 不要只在这里填一个。
+  ===========================================================================
+-->
+<root main_tree_to_execute="MainTree">
+  <BehaviorTree ID="MainTree">
+    <ForceSuccess>
+      <Repeat num_cycles="-1">
+        <Control ID="RecoveryNode" name="ExploreRecovery" number_of_retries="3">
+          <Control ID="PipelineSequence" name="ExploreOneFrontier">
+
+            <!-- [1] 重规划周期 5s。★不要因为"规划频率异常/路径退化"来改这里★
+                 那是【视点缺少朝向】导致的死循环, 根因在前沿规划器, 已修复。
+                 详见文件头的"重要教训"和 docs/viewpoint_orientation.md -->
+            <Decorator ID="RateController" hz="0.2">
+              <!-- [2] retries 3 (原 2): 每次失败转 90°, 3 次 = 270° 环视 -->
+              <Control ID="RecoveryNode" name="ComputeFAELFrontierPath" number_of_retries="3">
+                <Action ID="NavflexGetPathAction"
+                        goal="{goal}"
+                        message="{planner_message}"
+                        outcome="{planner_outcome}"
+                        path="{frontier_path}"
+                        planner_id="FrontierAStar"
+                        server_name="compute_path_to_pose"
+                        server_timeout="5000"
+                        tolerance="0.5"
+                        use_start="false"/>
+                <Control ID="Sequence" name="RefreshFrontierObservations">
+                  <Action ID="ClearEntireCostmap"
+                          name="ClearGlobalCostmapAfterPlanningFailure"
+                          server_timeout="5000"
+                          service_name="global_costmap/clear_entirely_global_costmap"/>
+                  <!-- 转 90°: 与 h_angle=±45° 的视场宽度一致, 一次换一整个新视野 -->
+                  <Action ID="NavflexRecoveryAction"
+                          behavior="cmd_behavior"
+                          command="rotate 1.57"
+                          message="{planner_recovery_rotate_message}"
+                          outcome="{planner_recovery_rotate_outcome}"
+                          server_name="behavior_action"
+                          server_timeout="5000"
+                          used_plugin="{planner_recovery_rotate_plugin}"/>
+                  <!-- 等 1s: 让新视野的点云灌进 UFO 图再重试规划 -->
+                  <Action ID="NavflexRecoveryAction"
+                          behavior="cmd_behavior"
+                          command="wait 1.0"
+                          message="{planner_recovery_wait_message}"
+                          outcome="{planner_recovery_wait_outcome}"
+                          server_name="behavior_action"
+                          server_timeout="5000"
+                          used_plugin="{planner_recovery_wait_plugin}"/>
+                </Control>
+              </Control>
+            </Decorator>
+
+            <Control ID="RecoveryNode" name="FollowFAELFrontierPath" number_of_retries="2">
+              <!-- 两个 tolerance 必须【同时】为 0.0, 见文件头的容差陷阱说明 -->
+              <Action ID="NavflexExePathAction"
+                      angle_to_goal="{controller_angle_to_goal}"
+                      controller_id="FollowPath"
+                      dist_to_goal="{controller_dist_to_goal}"
+                      feedback_distance_to_goal="{controller_feedback_distance_to_goal}"
+                      feedback_message="{controller_feedback_message}"
+                      feedback_outcome="{controller_feedback_outcome}"
+                      feedback_speed="{controller_feedback_speed}"
+                      final_pose="{controller_final_pose}"
+                      message="{controller_message}"
+                      outcome="{controller_outcome}"
+                      path="{frontier_path}"
+                      server_name="follow_path"
+                      server_timeout="3000"
+                      xy_goal_tolerance="0.0"
+                      yaw_goal_tolerance="0.0"/>
+              <Control ID="Sequence" name="RecoverFollowPath">
+                <Action ID="ClearEntireCostmap"
+                        name="ClearLocalCostmapAfterFollowFailure"
+                        server_timeout="3000"
+                        service_name="local_costmap/clear_entirely_local_costmap"/>
+                <!-- 后退 0.3m 与原版一致。local_costmap 订阅的是 /livox/lidar
+                     (mid360 原始 360° 点云), 身后一直有观测, 不是盲退。 -->
+                <Action ID="NavflexRecoveryAction"
+                        behavior="cmd_behavior"
+                        command="linear -0.3"
+                        message="{controller_recovery_back_message}"
+                        outcome="{controller_recovery_back_outcome}"
+                        server_name="behavior_action"
+                        server_timeout="3000"
+                        used_plugin="{controller_recovery_back_plugin}"/>
+                <Action ID="NavflexRecoveryAction"
+                        behavior="cmd_behavior"
+                        command="rotate -1.57"
+                        message="{controller_recovery_rotate_message}"
+                        outcome="{controller_recovery_rotate_outcome}"
+                        server_name="behavior_action"
+                        server_timeout="3000"
+                        used_plugin="{controller_recovery_rotate_plugin}"/>
+              </Control>
+            </Control>
+          </Control>
+
+          <Control ID="RoundRobin" name="ExploreGlobalRecovery">
+            <Action ID="ClearEntireCostmap"
+                    name="ClearGlobalCostmap"
+                    server_timeout="3000"
+                    service_name="global_costmap/clear_entirely_global_costmap"/>
+            <Action ID="ClearEntireCostmap"
+                    name="ClearLocalCostmap"
+                    server_timeout="3000"
+                    service_name="local_costmap/clear_entirely_local_costmap"/>
+            <!-- 原地转 180°: 配合前面 3 次 90° 的扫视, 覆盖剩余盲区 -->
+            <Action ID="NavflexRecoveryAction"
+                    behavior="cmd_behavior"
+                    command="rotate 3.14"
+                    message="{global_recovery_rotate_message}"
+                    outcome="{global_recovery_rotate_outcome}"
+                    server_name="behavior_action"
+                    server_timeout="3000"
+                    used_plugin="{global_recovery_rotate_plugin}"/>
+            <Action ID="NavflexRecoveryAction"
+                    behavior="cmd_behavior"
+                    command="wait 2.0"
+                    message="{global_recovery_wait_message}"
+                    outcome="{global_recovery_wait_outcome}"
+                    server_name="behavior_action"
+                    server_timeout="3000"
+                    used_plugin="{global_recovery_wait_plugin}"/>
+          </Control>
+        </Control>
+      </Repeat>
+    </ForceSuccess>
+  </BehaviorTree>
+</root>

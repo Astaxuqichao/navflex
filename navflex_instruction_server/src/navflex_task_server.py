@@ -4,6 +4,11 @@
 This layer keeps LLM/VLN output away from direct robot control. It accepts a
 small task schema, grounds semantic targets through navflex_semantic_map, and
 only then calls the existing text instruction executor.
+
+When the world-model gate is enabled, a grounded navigation goal also gets
+imagined before it is driven: navflex_world_model plans the path, rolls a video
+world model forward along it, and returns a verdict that feeds the confirmation
+gate below.
 """
 
 import json
@@ -14,6 +19,7 @@ import traceback
 from typing import Dict, List, Optional
 
 import rclpy
+from geometry_msgs.msg import PoseStamped
 from rclpy.callback_groups import ReentrantCallbackGroup
 from rclpy.executors import MultiThreadedExecutor
 from rclpy.node import Node
@@ -23,6 +29,11 @@ from navflex_instruction_server.srv import (
     ExecuteTask,
     QuerySemanticTarget,
 )
+
+try:
+    from navflex_world_model.srv import EvaluatePlan
+except ImportError:  # navflex_world_model is an optional overlay
+    EvaluatePlan = None
 
 
 class TaskError(ValueError):
@@ -38,6 +49,11 @@ class NavflexTaskServer(Node):
         self.declare_parameter('default_execute', False)
         self.declare_parameter('high_risk_constraints', ['enter_restricted_zone', 'ignore_obstacles'])
         self.declare_parameter('action_timeout', 30.0)
+        self.declare_parameter('world_model_enabled', False)
+        self.declare_parameter('world_model_service', 'navflex_world_model/evaluate')
+        # Imagining a rollout is a video-diffusion pass: minutes on one GPU.
+        self.declare_parameter('world_model_timeout', 900.0)
+        self.declare_parameter('world_model_frame_num', 0)
 
         self.instruction_service = self.get_parameter('instruction_service').value
         self.semantic_query_service = self.get_parameter('semantic_query_service').value
@@ -47,6 +63,11 @@ class NavflexTaskServer(Node):
             self.get_parameter('default_execute').value)
         self.high_risk_constraints = set(self.get_parameter('high_risk_constraints').value or [])
         self.action_timeout = float(self.get_parameter('action_timeout').value)
+        self.world_model_enabled = self._as_bool(
+            self.get_parameter('world_model_enabled').value)
+        self.world_model_service = self.get_parameter('world_model_service').value
+        self.world_model_timeout = float(self.get_parameter('world_model_timeout').value)
+        self.world_model_frame_num = int(self.get_parameter('world_model_frame_num').value)
 
         self.callback_group = ReentrantCallbackGroup()
         self.execute_client = self.create_client(
@@ -57,6 +78,20 @@ class NavflexTaskServer(Node):
             QuerySemanticTarget,
             self.semantic_query_service,
             callback_group=self.callback_group)
+
+        self.world_model_client = None
+        if self.world_model_enabled:
+            if EvaluatePlan is None:
+                self.get_logger().error(
+                    'world_model_enabled but navflex_world_model is not on the '
+                    'ament prefix path; the gate will be skipped')
+                self.world_model_enabled = False
+            else:
+                self.world_model_client = self.create_client(
+                    EvaluatePlan,
+                    self.world_model_service,
+                    callback_group=self.callback_group)
+
         self.create_service(
             ExecuteTask,
             'navflex_task/execute',
@@ -65,6 +100,7 @@ class NavflexTaskServer(Node):
         self.get_logger().info(
             f"Task server ready: instruction_service='{self.instruction_service}', "
             f"semantic_query_service='{self.semantic_query_service}', "
+            f"world_model={'on -> ' + self.world_model_service if self.world_model_enabled else 'off'}, "
             f"use_semantic_map={self.use_semantic_map}")
 
     def execute_task(self, request, response):
@@ -101,7 +137,29 @@ class NavflexTaskServer(Node):
             if not should_execute:
                 response.success = True
                 response.accepted = False
+                # The gate only runs on plans that are about to be driven, so
+                # say so rather than leaving the verdict field ambiguously empty.
+                response.world_model_verdict = 'not_evaluated'
                 response.message = 'task parsed and grounded; execution skipped'
+                return self._finish(response, steps, start)
+
+            # Everything above decided the plan is worth running. Imagine it
+            # before driving it: the gate can still veto.
+            verdict = self._consult_world_model(task, request, response, steps)
+            if verdict == 'reject':
+                response.success = False
+                response.accepted = False
+                response.requires_confirmation = False
+                response.message = f'world model rejected the plan: {response.world_model_reason}'
+                return self._finish(response, steps, start)
+            if verdict == 'needs_confirmation':
+                response.success = True
+                response.accepted = False
+                response.requires_confirmation = True
+                response.message = (
+                    'world model requires confirmation: '
+                    f'{response.world_model_reason}. Re-send with '
+                    'skip_world_model=true to execute anyway.')
                 return self._finish(response, steps, start)
 
             steps.append(f"calling instruction executor: {command}")
@@ -225,6 +283,98 @@ class NavflexTaskServer(Node):
             return f"{action} {float(value):.6f}"
         raise TaskError(f"unsupported task action '{action}'")
 
+    def _consult_world_model(self, task: Dict, request, response, steps: List[str]) -> str:
+        """Imagine the grounded plan and return the gate's verdict.
+
+        Returns 'approve' whenever execution should proceed, which includes the
+        cases where the gate does not apply -- a rotate/wait task has no path to
+        imagine, and the gate is off by default.
+        """
+        response.world_model_verdict = 'disabled'
+        response.world_model_reason = ''
+        response.world_model_rollout_uri = ''
+
+        if not self.world_model_enabled:
+            return 'approve'
+        if request.skip_world_model:
+            response.world_model_verdict = 'skipped'
+            response.world_model_reason = 'caller set skip_world_model'
+            steps.append('world model gate skipped by caller')
+            return 'approve'
+
+        goal = self._task_goal_pose(task)
+        if goal is None:
+            response.world_model_verdict = 'skipped'
+            response.world_model_reason = (
+                f"action '{task.get('action', '')}' has no navigation goal to imagine")
+            steps.append(f'world model gate skipped: {response.world_model_reason}')
+            return 'approve'
+
+        if not self.world_model_client.wait_for_service(timeout_sec=self.action_timeout):
+            response.world_model_verdict = 'needs_confirmation'
+            response.world_model_reason = (
+                f'world model service unavailable: {self.world_model_service}')
+            steps.append(response.world_model_reason)
+            # Fail closed: an absent gate is not an approving gate.
+            return 'needs_confirmation'
+
+        req = EvaluatePlan.Request()
+        req.goal = goal
+        req.instruction = task.get('source_instruction', '') or request.instruction
+        req.task_json = json.dumps(task, ensure_ascii=False, sort_keys=True)
+        req.dry_run = False
+        req.frame_num = self.world_model_frame_num
+
+        steps.append('world model: imagining the plan before executing it')
+        future = self.world_model_client.call_async(req)
+        if not self._wait_for_future(future, 'world model evaluate',
+                                     timeout=self.world_model_timeout):
+            response.world_model_verdict = 'needs_confirmation'
+            response.world_model_reason = 'world model evaluation timed out'
+            steps.append(response.world_model_reason)
+            return 'needs_confirmation'
+
+        result = future.result()
+        if result is None:
+            response.world_model_verdict = 'needs_confirmation'
+            response.world_model_reason = 'world model returned no result'
+            steps.append(response.world_model_reason)
+            return 'needs_confirmation'
+
+        response.world_model_verdict = result.verdict
+        response.world_model_reason = result.reason
+        response.world_model_rollout_uri = result.rollout_uri
+        steps.extend([f'world model: {step}' for step in result.steps])
+        steps.append(
+            f'world model verdict: {result.verdict} '
+            f'(confidence {result.confidence:.2f})')
+        return result.verdict if result.verdict in (
+            'approve', 'reject', 'needs_confirmation') else 'needs_confirmation'
+
+    def _task_goal_pose(self, task: Dict) -> Optional[PoseStamped]:
+        """The pose the robot would drive to, or None if the task is not a drive."""
+        grounded = task.get('grounded_target')
+        if isinstance(grounded, dict) and grounded.get('x') is not None:
+            x, y, yaw = grounded['x'], grounded['y'], grounded.get('yaw', 0.0)
+        elif task.get('action') in ('navigate', 'navigate_to_pose'):
+            pose = task.get('pose') or {}
+            x = task.get('x', pose.get('x'))
+            y = task.get('y', pose.get('y'))
+            yaw = task.get('yaw', pose.get('yaw', 0.0))
+            if x is None or y is None:
+                return None
+        else:
+            return None
+
+        goal = PoseStamped()
+        goal.header.frame_id = 'map'
+        goal.header.stamp = self.get_clock().now().to_msg()
+        goal.pose.position.x = float(x)
+        goal.pose.position.y = float(y)
+        goal.pose.orientation.z = math.sin(float(yaw) * 0.5)
+        goal.pose.orientation.w = math.cos(float(yaw) * 0.5)
+        return goal
+
     def _query_semantic_target(self, target: str, target_type: str):
         if not self.semantic_client.wait_for_service(timeout_sec=self.action_timeout):
             raise TaskError(f"semantic query service unavailable: {self.semantic_query_service}")
@@ -282,8 +432,9 @@ class NavflexTaskServer(Node):
             return None
         return future.result()
 
-    def _wait_for_future(self, future, label: str) -> bool:
-        deadline = time.monotonic() + self.action_timeout
+    def _wait_for_future(self, future, label: str, timeout: Optional[float] = None) -> bool:
+        deadline = time.monotonic() + (
+            self.action_timeout if timeout is None else timeout)
         while rclpy.ok() and not future.done():
             time.sleep(0.05)
             if time.monotonic() > deadline:

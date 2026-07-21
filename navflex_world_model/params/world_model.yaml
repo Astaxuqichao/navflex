@@ -1,0 +1,113 @@
+navflex_world_model:
+  ros__parameters:
+    global_frame: map
+    planner_id: GridBased
+    action_timeout: 30.0
+
+    # The xgb ego camera, as declared in MATRiX config/config.json:
+    #   topic /image_raw/compressed, 1920x1080, fov 90, pitch 15 deg down,
+    #   mounted 0.29 m forward of base_link.
+    image_topic: /image_raw/compressed
+    image_max_age: 2.0
+    camera_fov_deg: 90.0
+    camera_width: 1920
+    camera_height: 1080
+    camera_offset_x: 0.29
+    camera_offset_y: 0.0
+    camera_offset_z: 0.01
+    camera_roll_deg: 0.0
+    # The true mount tilt. It is deliberately NOT passed to the world model:
+    # LingBot sees only framewise-relative poses with frame 0 forced to
+    # identity, so a constant tilt is invisible to it, while the tilt's
+    # translation component (25.9% of every step points "up" in the camera's own
+    # axes) reads as ascending -- the rollout flies into the ceiling. The
+    # conditioning trajectory uses a level virtual camera; the seed image still
+    # shows the true tilted view. See pose_utils.level_for_conditioning.
+    camera_pitch_deg: 15.0
+    camera_yaw_deg: 0.0
+
+    # "null" -> gate runs but imagines nothing. Switch to lingbot_http once the
+    # sidecar is up (scripts/lingbot_server.py).
+    # Quoted: bare null is a YAML None, which is not a valid string parameter.
+    backend: "null"
+    lingbot_url: http://127.0.0.1:8100
+    backend_timeout: 600.0
+
+    # 0 -> derive the frame count from the plan's LENGTH. Frame count is the
+    # only distance knob LingBot has: compute_relative_poses(normalize_trans=
+    # True) divides every step by the largest one, so a uniformly resampled plan
+    # advances exactly one model-unit per frame however many metres it spans. A
+    # 1 m plan and a 4 m plan at the same frame count are bit-identical input.
+    frame_num: 0
+    # Metres the imagined robot advances per frame. Calibrated against MATRiX
+    # odometry: seed a rollout on a straight 3.09 m bag stretch, match each
+    # rollout frame to the recorded image it most resembles, read the odometry.
+    # Rollout frame 28 lands 5.19 m along. Treat as +/- 20%, not a constant.
+    metres_per_frame: 0.188
+    # Turning is a CHECK, not an input: frames buy distance, so a turn cannot be
+    # slowed by adding frames without also walking further. Measured with a
+    # level conditioning camera at 29 frames and fixed arclength: 90 deg
+    # (3.21 deg/frame), 120 deg (4.29) and 150 deg (5.36) all render as coherent,
+    # correctly-rotated interiors. The old value of 1.0 came from rollouts that
+    # were breaking because of the mount tilt, not the turn; it implied a 10.8 m
+    # minimum turn radius and would have refused every indoor corner.
+    # 4.0 keeps a margin under the highest verified rate.
+    max_deg_per_frame: 4.0
+    # LingBot only renders frame counts of the form 16k-3 (13, 29, 45, ...); ask
+    # for anything else and it floors to the grid and silently truncates the
+    # trajectory. Both bounds are snapped at startup, so keep them on-grid here.
+    min_frame_num: 13
+    # Ceiling, not a preference. The rollout stops being trustworthy once the
+    # imagined robot walks further than the room affords. Straight-line
+    # scene-cut ratios, with the mount tilt stripped: 13 frames (~2.3 m) 1.12,
+    # 29 frames (~5.3 m) 1.17, 45 frames (~8.3 m) 3.11 -- at 45 it walks past
+    # the kitchen island and invents a robot to fill the view. Plans longer than
+    # ~5.3 m come back as needs_confirmation with no rollout at all, rather than
+    # being approved on a rollout that only covered their first half.
+    max_frame_num: 29
+    # 1 -> let critic_max_frames be the only sampler. See the node.
+    frame_sample_stride: 1
+    # Empty -> a fixed, task-agnostic prompt. The instruction is NEVER given to
+    # the world model: it answers a question of geometry ("what does the camera
+    # see along this path?") and the critic decides whether that matches the
+    # task. Prompting the diffusion with the task invites it to draw the outcome
+    # the user asked for, and the gate becomes an echo chamber. Do not put the
+    # instruction here.
+    rollout_prompt: ''
+
+    # claude | openai_compat | openai | codex_cli | "null"
+    #   claude        -- Anthropic Messages API; schema-constrained verdict.
+    #   openai_compat -- any OpenAI-compatible /v1/chat/completions endpoint,
+    #                    which is what the VLM aggregators speak. Needs
+    #                    critic_base_url + critic_model.
+    # Quoted: bare null is a YAML None, not the string "null".
+    critic: "null"
+    # Empty -> the backend's own default. openai_compat has none: set it.
+    # Benchmarked on test/probe_vlm_critics.py: moonshotai/kimi-k2.5 is the
+    # only candidate that rejects a genuinely blocked path AND approves a clear
+    # one. minimax-m3 never approves (the gate would block every task); GLM 5.x
+    # does not accept images at all on api.luchentech.com.
+    critic_model: ''
+    # Empty -> ANTHROPIC_API_KEY (claude) / OPENAI_API_KEY (openai)
+    #        / NAVFLEX_CRITIC_API_KEY (openai_compat).
+    critic_api_key_env: ''
+    # openai_compat only, e.g. https://api.example.com/v1
+    critic_base_url: ''
+    # Claude only: low | medium | high | xhigh | max
+    critic_effort: medium
+    # openai (Responses API) backend only.
+    critic_api_url: https://api.openai.com/v1/responses
+    # Read as-is and lowercased, so https_proxy works too. Needed inside the
+    # robot's container, which does not inherit the host's proxy env.
+    critic_proxy_env: HTTPS_PROXY
+    critic_timeout: 120.0
+    critic_max_frames: 6
+
+    # Fail closed. If the gate cannot form an opinion -- no camera frame, the
+    # sidecar is down, the critic errored -- the caller must not read that as
+    # "safe". Set to 'approve' only if you accept an unguarded stack.
+    unavailable_verdict: needs_confirmation
+    min_confidence: 0.0
+    # Below this, the camera does not move and the rollout would only redraw the
+    # current frame. Approve instead of spending a diffusion pass.
+    min_path_length: 0.2

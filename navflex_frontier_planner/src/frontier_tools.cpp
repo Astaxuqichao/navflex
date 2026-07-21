@@ -13,6 +13,7 @@
 #include "rclcpp/exceptions.hpp"
 #include "sensor_msgs/point_cloud2_iterator.hpp"
 #include "tf2/LinearMath/Matrix3x3.h"
+#include "tf2/utils.h"
 #include "tf2/LinearMath/Quaternion.h"
 #include "tf2/LinearMath/Transform.h"
 #include "tf2/LinearMath/Vector3.h"
@@ -148,6 +149,21 @@ geometry_msgs::msg::PoseStamped makePose(
   return pose;
 }
 
+// 带朝向的重载：用于把【视点朝向】(指向前沿质心) 发到 RViz,
+// 这样 /frontier_exploration/selected_candidate 的箭头就能直观显示
+// "机器人到达后打算朝哪看" —— 而不是一个没有方向的球。
+geometry_msgs::msg::PoseStamped makePose(
+  const Candidate & candidate,
+  const std_msgs::msg::Header & header)
+{
+  auto pose = makePose(candidate.point, header);
+  if (candidate.has_yaw) {
+    pose.pose.orientation.z = std::sin(candidate.yaw * 0.5);
+    pose.pose.orientation.w = std::cos(candidate.yaw * 0.5);
+  }
+  return pose;
+}
+
 void updatePathOrientations(nav_msgs::msg::Path & path)
 {
   if (path.poses.size() < 2) {
@@ -262,6 +278,20 @@ void FaelFrontierCore::configure(
   declare_if_missing("known_gain_penalty", known_gain_penalty_);
   declare_if_missing("min_candidate_dist", min_candidate_dist_);
   declare_if_missing("min_robot_frontier_dist", min_robot_frontier_dist_);
+  declare_if_missing("unresolvable_frontier_enabled", unresolvable_frontier_enabled_);
+  declare_if_missing("unresolvable_frontier_probe_dist", unresolvable_frontier_probe_dist_);
+  declare_if_missing("unresolvable_frontier_probe_period", unresolvable_frontier_probe_period_);
+  declare_if_missing("unresolvable_frontier_max_attempts", unresolvable_frontier_max_attempts_);
+  declare_if_missing("target_commitment_enabled", target_commitment_enabled_);
+  declare_if_missing("target_commitment_match_radius", target_commitment_match_radius_);
+  declare_if_missing("target_commitment_switch_margin", target_commitment_switch_margin_);
+  declare_if_missing("observation_hold_enabled", observation_hold_enabled_);
+  declare_if_missing("observation_hold_xy_tol", observation_hold_xy_tol_);
+  declare_if_missing("observation_hold_yaw_tol", observation_hold_yaw_tol_);
+  declare_if_missing("observation_hold_timeout", observation_hold_timeout_);
+  declare_if_missing("global_fallback_enabled", global_fallback_enabled_);
+  declare_if_missing("global_fallback_max_targets", global_fallback_max_targets_);
+  declare_if_missing("global_fallback_viewpoint_radius", global_fallback_viewpoint_radius_);
   declare_if_missing("robot_clear_radius", robot_clear_radius_);
   declare_if_missing("unknown_clear_radius", unknown_clear_radius_);
   declare_if_missing("viewpoint_free_z_min", viewpoint_free_z_min_);
@@ -270,6 +300,8 @@ void FaelFrontierCore::configure(
   declare_if_missing("sensor_height", sensor_height_);
   declare_if_missing("frontier_slope_deg", frontier_slope_deg_);
   declare_if_missing("viewpoint_slope_deg", viewpoint_slope_deg_);
+  declare_if_missing("viewpoint_horizontal_fov_deg", viewpoint_horizontal_fov_deg_);
+  declare_if_missing("calibration_log_enabled", calibration_log_enabled_);
   declare_if_missing("topology_enabled", topology_enabled_);
   declare_if_missing("topology_initialization_period", topology_initialization_period_);
   declare_if_missing("topology_update_distance", topology_update_distance_);
@@ -280,6 +312,7 @@ void FaelFrontierCore::configure(
   declare_if_missing("topology_local_min_clearance", topology_local_min_clearance_);
   declare_if_missing("topology_max_clearance", topology_max_clearance_);
   declare_if_missing("topology_connection_radius", topology_connection_radius_);
+  declare_if_missing("topology_edge_clearance", topology_edge_clearance_);
   declare_if_missing("topology_attach_radius", topology_attach_radius_);
   declare_if_missing("topology_z_tolerance", topology_z_tolerance_);
   declare_if_missing("topology_initial_min_nodes", topology_initial_min_nodes_);
@@ -324,6 +357,20 @@ void FaelFrontierCore::configure(
   get_parameter("known_gain_penalty", known_gain_penalty_);
   get_parameter("min_candidate_dist", min_candidate_dist_);
   get_parameter("min_robot_frontier_dist", min_robot_frontier_dist_);
+  get_parameter("unresolvable_frontier_enabled", unresolvable_frontier_enabled_);
+  get_parameter("unresolvable_frontier_probe_dist", unresolvable_frontier_probe_dist_);
+  get_parameter("unresolvable_frontier_probe_period", unresolvable_frontier_probe_period_);
+  get_parameter("unresolvable_frontier_max_attempts", unresolvable_frontier_max_attempts_);
+  get_parameter("target_commitment_enabled", target_commitment_enabled_);
+  get_parameter("target_commitment_match_radius", target_commitment_match_radius_);
+  get_parameter("target_commitment_switch_margin", target_commitment_switch_margin_);
+  get_parameter("observation_hold_enabled", observation_hold_enabled_);
+  get_parameter("observation_hold_xy_tol", observation_hold_xy_tol_);
+  get_parameter("observation_hold_yaw_tol", observation_hold_yaw_tol_);
+  get_parameter("observation_hold_timeout", observation_hold_timeout_);
+  get_parameter("global_fallback_enabled", global_fallback_enabled_);
+  get_parameter("global_fallback_max_targets", global_fallback_max_targets_);
+  get_parameter("global_fallback_viewpoint_radius", global_fallback_viewpoint_radius_);
   get_parameter("robot_clear_radius", robot_clear_radius_);
   get_parameter("unknown_clear_radius", unknown_clear_radius_);
   get_parameter("viewpoint_free_z_min", viewpoint_free_z_min_);
@@ -332,6 +379,8 @@ void FaelFrontierCore::configure(
   get_parameter("sensor_height", sensor_height_);
   get_parameter("frontier_slope_deg", frontier_slope_deg_);
   get_parameter("viewpoint_slope_deg", viewpoint_slope_deg_);
+  get_parameter("viewpoint_horizontal_fov_deg", viewpoint_horizontal_fov_deg_);
+  get_parameter("calibration_log_enabled", calibration_log_enabled_);
   get_parameter("topology_enabled", topology_enabled_);
   get_parameter("topology_initialization_period", topology_initialization_period_);
   get_parameter("topology_update_distance", topology_update_distance_);
@@ -342,6 +391,7 @@ void FaelFrontierCore::configure(
   get_parameter("topology_local_min_clearance", topology_local_min_clearance_);
   get_parameter("topology_max_clearance", topology_max_clearance_);
   get_parameter("topology_connection_radius", topology_connection_radius_);
+  get_parameter("topology_edge_clearance", topology_edge_clearance_);
   get_parameter("topology_attach_radius", topology_attach_radius_);
   get_parameter("topology_z_tolerance", topology_z_tolerance_);
   get_parameter("topology_initial_min_nodes", topology_initial_min_nodes_);
@@ -706,8 +756,12 @@ bool FaelFrontierCore::isKnownFree2D(const Point3 & from, const Point3 & to) con
       from.x + (to.x - from.x) * t,
       from.y + (to.y - from.y) * t,
       plane_z};
+    // 用 topology_edge_clearance 而非 robot_clear_radius:
+    // 后者被强制清空球(必须 >= 滤波 min_range)和视点避障复用, 动不得;
+    // 而拓扑边只是【路径引导】, 真正避障由 MPPI 用 costmap+精确 footprint 完成,
+    // 所以间隙可以贴近机器人内接半径(0.19), 让窄道也能连通。
     if (!map_state_->map->isFree(toUfoPoint(sample), insert_depth_) ||
-      isNearOccupied(sample, robot_clear_radius_))
+      isNearOccupied(sample, topology_edge_clearance_))
     {
       return false;
     }
@@ -1102,7 +1156,7 @@ std::vector<Point3> FaelFrontierCore::searchTopologyPath(
           from.x + (to.x - from.x) * t,
           from.y + (to.y - from.y) * t,
           plane_z};
-        if (isNearOccupied(sample, robot_clear_radius_)) {
+        if (isNearOccupied(sample, topology_edge_clearance_)) {
           return false;
         }
         // The first cloud may not have marked the robot footprint free yet. Allow that
@@ -1352,7 +1406,34 @@ void FaelFrontierCore::updateGlobalFrontiers(const Point3 & current)
   const double slope_limit = std::tan(frontier_slope_deg_ * M_PI / 180.0);
   int revalidated = 0;
 
+  std::size_t newly_blacklisted = 0;
+
+  // ★黑名单计数的【时间闸门】★
+  // updateGlobalFrontiers 每次 selectCandidates 都会跑，而 selectCandidates 的调用
+  // 频率完全由探索 BT 的 RateController(hz) 决定 —— 用户随时可能把它从 0.33 改到 10。
+  // 若按"每次调用 +1"，max_attempts=5 的实际含义就从 15 秒变成 0.5 秒，
+  // 机器人会在半秒内把身边【还没来得及观测】的前沿（侧后方，不在 ±45° 前视锥里）
+  // 全部永久拉黑，一边走一边摧毁前沿地图 -> 无候选 -> 彻底不动。
+  // 所以计数改为按【真实经过的秒数】闸门化：无论 BT 多快，最多 probe_period 秒 +1 一次。
+  //   实际拉黑耗时 = max_attempts x probe_period（与 BT 频率无关）
+  const auto now = clock_->now();
+  bool count_this_cycle = false;
+  if (unresolvable_frontier_enabled_ && unresolvable_frontier_max_attempts_ > 0) {
+    if (!map_state_->has_unresolvable_count_time) {
+      count_this_cycle = true;
+    } else {
+      const double elapsed = (now - map_state_->last_unresolvable_count_time).seconds();
+      // elapsed < 0 说明时钟回跳（换了 /clock 源或 sim 重启），保守地重新开始计时
+      count_this_cycle =
+        elapsed < 0.0 || elapsed >= unresolvable_frontier_probe_period_;
+    }
+  }
+
   for (const auto & code : map_state_->global_frontier_cells) {
+    // 已拉黑的不可解前沿：直接丢弃，不再参与任何后续逻辑。
+    if (map_state_->unresolvable_frontier_cells.count(code) != 0) {
+      continue;
+    }
     const auto point = codeToPoint(code);
     const double dist_xy = point.distanceXY(current);
     if (dist_xy < max_range_ + 1.0) {
@@ -1363,20 +1444,68 @@ void FaelFrontierCore::updateGlobalFrontiers(const Point3 & current)
         continue;
       }
       ++revalidated;
-      if (dist_xy > 1e-6 &&
+      const bool still_frontier =
+        dist_xy > 1e-6 &&
         std::fabs(point.z - current.z) / dist_xy < slope_limit &&
-        isFrontier(code))
-      {
-        updated_frontiers.insert(code);
+        isFrontier(code);
+
+      if (!still_frontier) {
+        // 已经被观测掉了 —— 清掉它的尝试计数（可能之前攒了几次）。
+        map_state_->frontier_attempts.erase(code);
+        continue;
       }
+
+      // 【不可解前沿黑名单】机器人已经在近距离待过，它却【仍然是前沿】
+      // -> 说明这块 unknown 物理上看不进去（家具内部/沙发底下/柜子里/墙缝）。
+      // 不拉黑的话，unknownGainBeyondFrontier 仍会算出正的增益，
+      // 规划器就会永远认为"值得去"，机器人围着它无限打转。
+      //
+      // count_this_cycle 由上面的【时间闸门】控制：最多 probe_period 秒才 +1 一次，
+      // 与 BT 的 RateController 频率无关。故拉黑耗时恒为
+      //     max_attempts x probe_period = 5 x 3.0 = 15 秒
+      // 机器人只是路过时最多攒 1~2 次，不会误杀。
+      if (count_this_cycle && dist_xy <= unresolvable_frontier_probe_dist_) {
+        const int attempts = ++map_state_->frontier_attempts[code];
+        if (attempts >= unresolvable_frontier_max_attempts_) {
+          map_state_->unresolvable_frontier_cells.insert(code);
+          map_state_->frontier_attempts.erase(code);
+          ++newly_blacklisted;
+          continue;   // 不放回 updated_frontiers -> 从此彻底消失
+        }
+      }
+      updated_frontiers.insert(code);
     } else {
       updated_frontiers.insert(code);
     }
   }
 
-  updated_frontiers.insert(
-    map_state_->local_frontier_cells.begin(), map_state_->local_frontier_cells.end());
+  // 合并本轮新发现的局部前沿。★必须跳过黑名单★ ——
+  // 否则刚拉黑的前沿会立刻从 local_frontier_cells 被重新加回来，黑名单形同虚设。
+  for (const auto & code : map_state_->local_frontier_cells) {
+    if (map_state_->unresolvable_frontier_cells.count(code) == 0) {
+      updated_frontiers.insert(code);
+    }
+  }
   map_state_->global_frontier_cells = std::move(updated_frontiers);
+
+  // 本轮真的计过数，才推进时间闸门（否则闸门永远打开，退化成"每次调用 +1"）。
+  if (count_this_cycle) {
+    map_state_->last_unresolvable_count_time = now;
+    map_state_->has_unresolvable_count_time = true;
+  }
+
+  if (newly_blacklisted > 0) {
+    RCLCPP_INFO(
+      logger_,
+      "[%s] blacklisted %zu unresolvable frontier cell(s) "
+      "(seen from <=%.2fm for %d x %.1fs = %.1fs but still unknown behind -- "
+      "likely inside furniture/cabinets). total_blacklisted=%zu remaining_global_frontiers=%zu",
+      name_.c_str(), newly_blacklisted, unresolvable_frontier_probe_dist_,
+      unresolvable_frontier_max_attempts_, unresolvable_frontier_probe_period_,
+      unresolvable_frontier_max_attempts_ * unresolvable_frontier_probe_period_,
+      map_state_->unresolvable_frontier_cells.size(),
+      map_state_->global_frontier_cells.size());
+  }
 }
 
 std::vector<Point3> FaelFrontierCore::getGlobalFrontiers() const
@@ -1387,6 +1516,119 @@ std::vector<Point3> FaelFrontierCore::getGlobalFrontiers() const
     frontiers.push_back(codeToPoint(code));
   }
   return frontiers;
+}
+
+bool FaelFrontierCore::findStandableViewpointNear(
+  const Point3 & frontier,
+  const Point3 & current,
+  Point3 & out) const
+{
+  // 不能直接把前沿点当导航目标：前沿位于未知区边界，往往贴墙/贴家具，机器人站不住。
+  // 所以在它周围采样，找一个"站得住"的点 —— 判据与 sampleViewpoints 完全一致。
+  const double radius = std::max(resolution_, global_fallback_viewpoint_radius_);
+  const double step = std::max(resolution_, sample_dist_ * 0.5);
+  const int cells = std::max(1, static_cast<int>(std::ceil(radius / step)));
+
+  bool found = false;
+  double best_dist = std::numeric_limits<double>::max();
+  for (int dx = -cells; dx <= cells; ++dx) {
+    for (int dy = -cells; dy <= cells; ++dy) {
+      Point3 sample{
+        frontier.x + static_cast<double>(dx) * step,
+        frontier.y + static_cast<double>(dy) * step,
+        current.z + sensor_height_};
+      const double dist = sample.distanceXY(frontier);
+      if (dist > radius) {
+        continue;
+      }
+      if (!hasFreeVoxelNearHeight(sample)) {
+        continue;
+      }
+      if (isNearOccupied(sample, robot_clear_radius_)) {
+        continue;
+      }
+      // 取离前沿最近的那个可站立点（离得越近，走到后越可能观测到它）
+      if (dist < best_dist) {
+        best_dist = dist;
+        out = sample;
+        found = true;
+      }
+    }
+  }
+  return found;
+}
+
+std::vector<Candidate> FaelFrontierCore::selectGlobalFallbackCandidates(
+  const Point3 & current) const
+{
+  std::vector<Candidate> result;
+  if (!global_fallback_enabled_) {
+    return result;
+  }
+  if (map_state_->topology_nodes.empty()) {
+    RCLCPP_WARN(
+      logger_, "[%s] global fallback: topology graph is empty, cannot route anywhere",
+      name_.c_str());
+    return result;
+  }
+
+  // getGlobalFrontiers() 取自 global_frontier_cells，黑名单里的已经被剔除掉了。
+  auto frontiers = getGlobalFrontiers();
+  if (frontiers.empty()) {
+    return result;   // 真的探完了
+  }
+
+  // 近的优先。这里只用欧氏距离排序：对每个前沿都跑一次拓扑 A* 太贵，
+  // 所以先按直线距离排序，再对最近的几个逐个验证可达性。
+  std::sort(
+    frontiers.begin(), frontiers.end(),
+    [&current](const Point3 & a, const Point3 & b) {
+      return a.distanceXY(current) < b.distanceXY(current);
+    });
+
+  const int max_targets = std::max(1, global_fallback_max_targets_);
+  int tried = 0;
+  for (const auto & frontier : frontiers) {
+    if (tried >= max_targets) {
+      break;
+    }
+    if (frontier.distanceXY(current) <= min_robot_frontier_dist_) {
+      continue;   // 太近的本该由局部逻辑处理，走到兜底说明它有别的问题
+    }
+    ++tried;
+
+    Point3 viewpoint;
+    if (!findStandableViewpointNear(frontier, current, viewpoint)) {
+      continue;   // 前沿周围没有能站人的地方
+    }
+
+    // ★兜底的核心★：远处前沿【认领不到】(认领需要 isFrontierVisible 视线可达)，
+    // 但完全可能【走得到】—— 拓扑图是全局连通的。这里直接验证可达性。
+    Point3 graph_start = current;
+    Point3 graph_goal = viewpoint;
+    graph_start.z = map_state_->topology_plane_z;
+    graph_goal.z = map_state_->topology_plane_z;
+    if (searchTopologyPath(graph_start, graph_goal).empty()) {
+      continue;   // 拓扑图上走不到（不连通/被挡）
+    }
+
+    Candidate candidate;
+    candidate.point = viewpoint;
+    candidate.frontiers = {frontier};
+    // 兜底候选同样要朝向那个远处前沿, 否则走到了也看不见(±45° 前视锥)。
+    {
+      const double dx = frontier.x - viewpoint.x;
+      const double dy = frontier.y - viewpoint.y;
+      if (std::hypot(dx, dy) > 1e-6) {
+        candidate.yaw = std::atan2(dy, dx);
+        candidate.has_yaw = true;
+      }
+    }
+    candidate.score = -frontier.distanceXY(current);   // 越近分越高
+    result.push_back(candidate);
+    break;   // 兜底只需要一个能走到的目标；走近之后局部逻辑会自然接管
+  }
+  return result;
 }
 
 std::vector<Point3> FaelFrontierCore::compactFrontiersForAttachment(
@@ -1601,8 +1843,32 @@ std::vector<Candidate> FaelFrontierCore::attachFrontiers(
       continue;
     }
     const Point3 viewpoint = representative_points[item.first];
-    double information_gain = 0.0;
-    for (const auto & frontier : frontier_set) {
+
+    // ══════════════════════════════════════════════════════════════════════════
+    // ★【水平视场角约束 + 最大覆盖朝向】
+    //
+    // 前沿->视点的认领是 360° 无差别的, 但机器人站在视点上【一次只看得见 ±fov/2】
+    // (滤波后 h_angle = ±45°)。此前的代码把认领到的【全部】前沿都算进增益、
+    // 朝向取质心 —— 垂直方向有 viewpoint_slope_deg 卡着, 水平方向却【毫无约束】:
+    //
+    //   · 增益虚高: 认领 40 个散布 200° 的前沿, 实际一次只观测得到其中 ~1/4
+    //   · 排序失真: "前沿散得开"的视点压过"前沿聚成一簇"的视点, 但后者才高效
+    //   · 朝向失真: 质心可能落在两簇前沿【中间的墙】上 —— 转过去两边都看不全
+    //
+    // 做法: 把前沿按【相对视点的方位角】排序, 一个 fov 宽的窗口在圆周上滑,
+    //       取【增益之和最大】的那一扇。只有窗口内的算增益, 朝向 = 窗口中心。
+    //       环形处理: 数组展开成 2n (后半段角度 +2π), 双指针 O(n)。
+    // ══════════════════════════════════════════════════════════════════════════
+    struct FrontierBearing
+    {
+      double angle;        // 相对视点的方位角 [-π, π]
+      double gain;         // 该前沿的增益贡献
+      std::size_t idx;     // 在 frontier_set 中的下标
+    };
+    std::vector<FrontierBearing> bearings;
+    bearings.reserve(frontier_set.size());
+    for (std::size_t k = 0; k < frontier_set.size(); ++k) {
+      const Point3 & frontier = frontier_set[k];
       const double frontier_distance = std::max(resolution_, frontier.distanceXY(viewpoint));
       const double distance_decay = std::max(
         0.25, 1.0 / (1.0 + frontier_distance_weight_ * frontier_distance));
@@ -1610,12 +1876,101 @@ std::vector<Candidate> FaelFrontierCore::attachFrontiers(
       if (unknown_gain < min_unknown_gain_) {
         continue;
       }
-      information_gain += frontier_gain_ * unknown_gain * distance_decay;
+      bearings.push_back(
+        FrontierBearing{
+          std::atan2(frontier.y - viewpoint.y, frontier.x - viewpoint.x),
+          frontier_gain_ * unknown_gain * distance_decay,
+          k});
+    }
+
+    double information_gain = 0.0;
+    std::vector<Point3> visible_frontiers;      // 【真正落在视场内】的前沿
+    double best_yaw = 0.0;
+    bool has_best_yaw = false;
+
+    if (viewpoint_horizontal_fov_deg_ >= 359.9) {
+      // 全向雷达: 不裁剪, 全部计入, 朝向取质心 (退化为旧行为)
+      double cx = 0.0;
+      double cy = 0.0;
+      for (const auto & bearing : bearings) {
+        information_gain += bearing.gain;
+        visible_frontiers.push_back(frontier_set[bearing.idx]);
+        cx += frontier_set[bearing.idx].x;
+        cy += frontier_set[bearing.idx].y;
+      }
+      if (!visible_frontiers.empty()) {
+        cx /= static_cast<double>(visible_frontiers.size());
+        cy /= static_cast<double>(visible_frontiers.size());
+        const double dx = cx - viewpoint.x;
+        const double dy = cy - viewpoint.y;
+        if (std::hypot(dx, dy) > 1e-6) {
+          best_yaw = std::atan2(dy, dx);
+          has_best_yaw = true;
+        }
+      }
+    } else if (!bearings.empty()) {
+      std::sort(
+        bearings.begin(), bearings.end(),
+        [](const FrontierBearing & a, const FrontierBearing & b) {return a.angle < b.angle;});
+
+      const std::size_t n = bearings.size();
+      const double fov = viewpoint_horizontal_fov_deg_ * M_PI / 180.0;
+
+      // 展开成 2n: 后半段角度 +2π, 于是窗口可以跨过 ±π 的接缝
+      std::vector<double> ext_angle(2 * n);
+      std::vector<double> ext_gain(2 * n);
+      for (std::size_t k = 0; k < 2 * n; ++k) {
+        ext_angle[k] = bearings[k % n].angle + (k >= n ? 2.0 * M_PI : 0.0);
+        ext_gain[k] = bearings[k % n].gain;
+      }
+
+      // 双指针滑窗: 窗口 [i, j) 内所有前沿都落在 [angle_i, angle_i + fov] 里
+      double best_sum = -1.0;
+      std::size_t best_i = 0;
+      std::size_t best_j = 0;
+      std::size_t j = 0;
+      double running = 0.0;
+      for (std::size_t i = 0; i < n; ++i) {
+        if (j < i) {
+          j = i;
+          running = 0.0;
+        }
+        while (j < i + n && ext_angle[j] - ext_angle[i] <= fov) {
+          running += ext_gain[j];
+          ++j;
+        }
+        if (running > best_sum) {
+          best_sum = running;
+          best_i = i;
+          best_j = j;
+        }
+        running -= ext_gain[i];      // 左端移出窗口
+      }
+
+      if (best_j > best_i) {
+        information_gain = best_sum;
+        for (std::size_t k = best_i; k < best_j; ++k) {
+          visible_frontiers.push_back(frontier_set[bearings[k % n].idx]);
+        }
+        // 朝向 = 窗口内前沿【角度跨度的中点】, 让 ±fov/2 的扇形正好把它们罩住
+        double mid = 0.5 * (ext_angle[best_i] + ext_angle[best_j - 1]);
+        while (mid > M_PI) {mid -= 2.0 * M_PI;}
+        while (mid < -M_PI) {mid += 2.0 * M_PI;}
+        best_yaw = mid;
+        has_best_yaw = true;
+      }
+    }
+
+    // 面积门槛也要用【视场内】的前沿, 不能再用认领总数 —— 否则又把虚高的量放回来了
+    const double visible_area =
+      static_cast<double>(visible_frontiers.size()) * frontier_cell_area;
+    if (visible_area < min_frontier_area_) {
+      continue;
     }
     if (information_gain < viewpoint_gain_threshold_) {
       information_gain = std::max(
         information_gain,
-        frontier_gain_ * frontier_area);
+        frontier_gain_ * visible_area);
     }
     if (information_gain < viewpoint_gain_threshold_) {
       continue;
@@ -1648,7 +2003,16 @@ std::vector<Candidate> FaelFrontierCore::attachFrontiers(
 
     Candidate candidate;
     candidate.point = viewpoint;
-    candidate.frontiers = frontier_set;
+    // 只挂【视场内】的前沿: 这既是 RViz 里画出来的, 也是机器人到了那儿真观测得到的。
+    // 落在扇形外的那些仍然"认领"在这个视点名下(不会被别的视点重复计分), 但不计增益 ——
+    // 等机器人观测完这一扇、这些前沿消失后, 剩下的会重新滑窗, 给出【新的朝向】。
+    candidate.frontiers = std::move(visible_frontiers);
+    // 【视点朝向】= 上面滑窗求出的最大覆盖方向。
+    // 没有它, makeAStarPath 会把末点朝向设成"到达时的行进方向", 机器人可能背对前沿停下,
+    // 而 ±45° 的前视锥意味着它【什么也看不到】-> 前沿消不掉 -> 下轮又选同一个视点。
+    candidate.yaw = best_yaw;
+    candidate.has_yaw = has_best_yaw;
+    candidate.gain = information_gain;   // 标定 distance_weight 用, 见 calibration_log_enabled
     candidate.score = information_gain - distance_weight_ * candidate.point.distanceXY(current) -
       visited_penalty - known_penalty;
     candidates.push_back(candidate);
@@ -1716,6 +2080,18 @@ std::vector<Candidate> FaelFrontierCore::attachFrontiers(
     std::chrono::duration<double, std::milli>(finished - scoring_done).count(),
     std::chrono::duration<double, std::milli>(finished - started).count());
 
+  // ── distance_weight 标定用的原始数据 ──────────────────────────────────────
+  // score = gain - w*dist - visited_penalty - known_penalty
+  // 光看 score 反推不出 gain 和 w*dist 各占多少 -> 这里把每个【真正参与竞争的】
+  // 候选的 (gain, dist) 原样打出来, 离线算 w。默认关闭。
+  if (calibration_log_enabled_) {
+    for (const auto & candidate : filtered) {
+      RCLCPP_INFO(
+        logger_, "[CAL] gain=%.1f dist=%.3f nf=%zu",
+        candidate.gain, candidate.point.distanceXY(current), candidate.frontiers.size());
+    }
+  }
+
   return filtered;
 }
 
@@ -1760,7 +2136,7 @@ std::vector<Candidate> FaelFrontierCore::selectCandidates(
       header.frame_id = frame_id_;
       safePublish(
         selected_candidate_pub_, makePose(
-          selected->point,
+          *selected,
           header), logger_, "selected_candidate");
     }
     RCLCPP_INFO(
@@ -1784,6 +2160,136 @@ std::vector<Candidate> FaelFrontierCore::selectCandidates(
   const auto viewpoints_done = std::chrono::steady_clock::now();
   auto candidates = attachFrontiers(viewpoints, attach_frontiers, current);
   const auto attach_done = std::chrono::steady_clock::now();
+
+  // ================ 「转向未完成」保护（必须在目标承诺【之前】）================
+  // 治的病: 机器人到达视点后【还没转到目标朝向】, 5 秒后 RateController 就重规划了。
+  //   此时它离原视点只有 ~0.2m < min_candidate_dist(0.8) -> 原视点【不再被采样】
+  //   -> 目标承诺按邻近匹配也找不回它 -> 选一个全新候选
+  //   -> NavflexExePathAction 运行中替换 FollowPath 的目标
+  //   -> 机器人【放弃转向】直奔新目标 -> 视点朝向机制形同虚设。
+  //
+  // 解法: 位置已到、朝向未到 时, 把【上一轮的候选原样返回】, 锁住目标直到转完。
+  //   控制器的 isGoalReached 本来就要求 xy 和 yaw 都到位才算完成
+  //   (controller_action_costmap_server.cpp ActionGoalChecker),
+  //   所以只要目标不被换掉, 它自己会把转向做完。
+  //
+  // 超时保护: 最多锁 observation_hold_timeout 秒, 防止朝向永远转不到时死锁。
+  if (observation_hold_enabled_ && map_state_->has_committed_target &&
+    map_state_->committed_candidate.has_yaw)
+  {
+    const auto & committed = map_state_->committed_candidate;
+    const double dist_to_target = current.distanceXY(committed.point);
+    const double robot_yaw = tf2::getYaw(start.pose.orientation);
+    double yaw_error = committed.yaw - robot_yaw;
+    // 归一化到 [-pi, pi]
+    while (yaw_error > M_PI) {yaw_error -= 2.0 * M_PI;}
+    while (yaw_error < -M_PI) {yaw_error += 2.0 * M_PI;}
+
+    const bool arrived_xy = dist_to_target <= observation_hold_xy_tol_;
+    const bool arrived_yaw = std::fabs(yaw_error) <= observation_hold_yaw_tol_;
+
+    if (arrived_xy && !arrived_yaw) {
+      const auto now = clock_->now();
+      if (!map_state_->observation_hold_active) {
+        map_state_->observation_hold_active = true;
+        map_state_->observation_hold_start = now;
+      }
+      const double held = (now - map_state_->observation_hold_start).seconds();
+      if (held >= 0.0 && held < observation_hold_timeout_) {
+        RCLCPP_INFO(
+          logger_,
+          "[%s] observation hold: arrived at viewpoint (%.2fm) but still turning "
+          "(yaw error %.0f deg > %.0f deg) -- keeping the same target so the robot can "
+          "finish facing the frontiers [held %.1f/%.1fs]",
+          name_.c_str(), dist_to_target,
+          std::fabs(yaw_error) * 180.0 / M_PI,
+          observation_hold_yaw_tol_ * 180.0 / M_PI,
+          held, observation_hold_timeout_);
+        auto held_candidates = std::vector<Candidate>{committed};
+        map_state_->candidates = held_candidates;
+        map_state_->candidates_stamp = clock_->now();
+        map_state_->candidates_owner = name_;
+        map_state_->candidates_origin = current;
+        map_state_->candidates_map_revision = map_state_->map_revision;
+        map_state_->has_cached_candidates = true;
+        publishCandidates(held_candidates, &held_candidates.front());
+        publishTopology(held_candidates, current, &held_candidates.front(), false);
+        return held_candidates;
+      }
+      // 超时: 放弃锁定, 正常选新目标（避免朝向转不到时永久卡死）
+      RCLCPP_WARN(
+        logger_,
+        "[%s] observation hold TIMEOUT after %.1fs (yaw error still %.0f deg) -- "
+        "giving up and selecting a new target",
+        name_.c_str(), held, std::fabs(yaw_error) * 180.0 / M_PI);
+      map_state_->observation_hold_active = false;
+    } else {
+      // 朝向已到位(或还没走到) -> 清掉计时
+      map_state_->observation_hold_active = false;
+    }
+  }
+
+  // ===================== 目标承诺 / 防横跳 =====================
+  // 背景: FrontierAStar 每周期都 force_refresh 全量重算候选并选第一名，【零迟滞】。
+  //       地图在变 -> 增益在抖 -> 探索后期两个增益相近的口袋会让排名反复翻转
+  //       -> 机器人原地横跳。这里让它"咬住一个目标走完"。
+  //
+  // 规则: 若上一轮选中的目标在本轮仍然存在(用邻近匹配, 因为候选每轮重新采样,
+  //       点不会完全重合)，就把它提回第一位 —— 除非本轮的最佳【明显】更好。
+  //       "明显" = 超出已承诺目标分数的 switch_margin 比例(默认 25%)。
+  //
+  // 自我终止: 机器人走到目标后, 那片前沿被观测掉 -> 增益归零 -> 该候选消失;
+  //           且 min_candidate_dist 会把脚下的视点滤掉 -> 匹配失败 -> 自然换目标。
+  //           所以不需要额外的"到达判定"。
+  if (target_commitment_enabled_ && map_state_->has_committed_target &&
+    candidates.size() > 1)
+  {
+    std::size_t committed_index = candidates.size();
+    double best_match = target_commitment_match_radius_;
+    for (std::size_t i = 0; i < candidates.size(); ++i) {
+      const double d = candidates[i].point.distanceXY(map_state_->committed_candidate.point);
+      if (d <= best_match) {
+        best_match = d;
+        committed_index = i;
+      }
+    }
+    if (committed_index != candidates.size() && committed_index != 0) {
+      const double best_score = candidates.front().score;
+      const double committed_score = candidates[committed_index].score;
+      // 相对阈值: information_gain 量级随前沿数剧烈变化(几百~几千), 绝对阈值不通用。
+      const double margin =
+        target_commitment_switch_margin_ * std::fabs(committed_score);
+      if (best_score - committed_score <= margin) {
+        // 新的最佳没有明显更好 -> 继续咬住原目标
+        std::swap(candidates[0], candidates[committed_index]);
+        RCLCPP_DEBUG(
+          logger_,
+          "[%s] target commitment: keeping previous target (score=%.1f) over new best "
+          "(score=%.1f, margin=%.1f)",
+          name_.c_str(), committed_score, best_score, margin);
+      } else {
+        RCLCPP_INFO(
+          logger_,
+          "[%s] target commitment: switching target -- new best (score=%.1f) beats "
+          "committed (score=%.1f) by more than %.0f%%",
+          name_.c_str(), best_score, committed_score,
+          target_commitment_switch_margin_ * 100.0);
+      }
+    }
+  }
+  if (target_commitment_enabled_ && !candidates.empty()) {
+    // 换目标了 -> 重置"转向未完成"的计时
+    const bool same_target =
+      map_state_->has_committed_target &&
+      candidates.front().point.distanceXY(map_state_->committed_candidate.point) < 1e-3;
+    if (!same_target) {
+      map_state_->observation_hold_active = false;
+    }
+    map_state_->committed_candidate = candidates.front();
+    map_state_->has_committed_target = true;
+  }
+  // ============================================================
+
   map_state_->candidates = candidates;
   map_state_->candidates_stamp = clock_->now();
   map_state_->candidates_owner = name_;
@@ -1805,12 +2311,41 @@ std::vector<Candidate> FaelFrontierCore::selectCandidates(
     std::chrono::duration<double, std::milli>(attach_done - total_start).count(),
     frontiers.size(), viewpoints.size(), candidates.size(), attach_frontiers.size());
 
+  // 【全局前沿兜底】局部视点一个前沿都认领不到时的最后一招。
+  // 不加这一段的话，这里就直接 return {} -> frontier_astar_planner.cpp 返回
+  // NO_PATH_FOUND -> 探索永久卡死，哪怕地图上还有一大片未知区。
+  if (candidates.empty()) {
+    candidates = selectGlobalFallbackCandidates(current);
+    if (!candidates.empty()) {
+      const auto & fallback = candidates.front();
+      RCLCPP_WARN(
+        logger_,
+        "[%s] no LOCAL frontier candidate -> GLOBAL FALLBACK engaged: routing to distant "
+        "frontier (%.2f, %.2f) via topology graph; viewpoint=(%.2f, %.2f) dist=%.2fm "
+        "global_frontiers=%zu blacklisted=%zu",
+        name_.c_str(),
+        fallback.frontiers.front().x, fallback.frontiers.front().y,
+        fallback.point.x, fallback.point.y, fallback.point.distanceXY(current),
+        frontiers.size(), map_state_->unresolvable_frontier_cells.size());
+      map_state_->candidates = candidates;
+      map_state_->candidates_stamp = clock_->now();
+      map_state_->candidates_owner = name_;
+      map_state_->candidates_origin = current;
+      map_state_->candidates_map_revision = map_state_->map_revision;
+      map_state_->has_cached_candidates = true;
+      publishCandidates(candidates, &candidates.front());
+      publishTopology(candidates, current, &candidates.front(), false);
+      return candidates;
+    }
+  }
+
   if (candidates.empty()) {
     publishCandidates(candidates, nullptr);
     publishTopology(candidates, current, nullptr, false);
     RCLCPP_WARN(
       logger_,
-      "[%s] no FAEL frontier candidate, global_frontiers=%zu local_frontiers=%zu "
+      "[%s] no FAEL frontier candidate (global fallback also found nothing reachable -- "
+      "map is likely fully explored), global_frontiers=%zu local_frontiers=%zu "
       "attach_frontiers=%zu viewpoints=%zu known_voxels=%zu map_revision=%lu sampled=%zu "
       "reject{range=%zu not_free=%zu "
       "occupied=%zu unknown=%zu too_close=%zu collision=%zu}",
@@ -1832,7 +2367,7 @@ std::vector<Candidate> FaelFrontierCore::selectCandidates(
     header.frame_id = frame_id_;
     safePublish(
       selected_candidate_pub_, makePose(
-        candidates.front().point, header), logger_, "selected_candidate");
+        candidates.front(), header), logger_, "selected_candidate");
   }
   RCLCPP_INFO(
     logger_, "[%s] selected candidate x=%.2f y=%.2f z=%.2f score=%.2f attached_frontiers=%zu",
@@ -1895,6 +2430,24 @@ nav_msgs::msg::Path FaelFrontierCore::makeAStarPath(
   const bool topology_updated = updateTopologyMap(start_point, true);
   const auto topology_done = std::chrono::steady_clock::now();
 
+  // ══════════════════════════════════════════════════════════════════════════
+  // ⚠️ 这里【曾经】有一个"原地转向捷径": start ≈ goal 时直接吐一条 2 点路径
+  //    (当前位姿 -> 同一位置但朝向 candidate.yaw), 想让机器人原地转过去观测。
+  //    【实测是个坏主意, 已删除】——
+  //      · 规划失败确实从 43 次降到 0 次 (拓扑 A* 不再退化), 看着很美好;
+  //      · 但 MPPI 是【路径跟随】控制器, 一条【零长度】路径给不出任何行进方向,
+  //        它算出来的速度就是 0 —— 机器人一动不动。日志实锤:
+  //            makeAStarPath success + "moved 1.6e-06 m in 10.0 s"
+  //      · 于是 10s 卡困判定触发 -> FollowPath abort -> 恢复动作耗尽 -> BT 直接退出。
+  //    ==> 把"规划失败"换成了"执行失败", 更糟。
+  //
+  //    正确的原地转向机制【本来就有】, 在 BT 里, 不在规划器里:
+  //      规划失败 -> RecoveryNode -> NavflexRecoveryAction command="rotate 1.57"
+  //    走的是 behavior server(直接发角速度), 不是 FollowPath。而且转的 90°
+  //    恰好等于一整个前视锥宽度 —— 一次换一整个新视野, 语义上正是我们要的。
+  //    所以 start≈goal 时就让它【正常失败】, 交给 BT 转身。别在这儿造假路径。
+  // ══════════════════════════════════════════════════════════════════════════
+
   Point3 graph_start = start_point;
   Point3 graph_target = target;
   graph_start.z = map_state_->topology_plane_z;
@@ -1934,6 +2487,24 @@ nav_msgs::msg::Path FaelFrontierCore::makeAStarPath(
   }
 
   updatePathOrientations(path);
+
+  // ★★ 用【视点朝向】覆盖路径末点的朝向 ★★
+  //
+  // updatePathOrientations 把每个位姿的朝向设为【沿路径切线】—— 末点的朝向就是
+  // "到达时的行进方向"。但激光滤波后只有 ±45° 的前视锥, 视点的意义是
+  // "站在这里【朝向前沿】才看得见"。行进方向完全可能【背对】它本该观测的前沿:
+  //   -> 机器人认认真真走过去、朝着错误的方向停下(default_yaw_goal_tolerance 会强制它)
+  //   -> 一个前沿也看不到 -> 前沿消不掉 -> 下一轮又选同一个视点 -> 死循环
+  // candidate.yaw 是"从视点指向其所认领前沿质心"的方向, 用它覆盖末点朝向,
+  // 机器人到达后就会自动转向前沿。代价只是多转一下身(wz_max=1.5 rad/s, 180° 约 2s)。
+  if (candidate.has_yaw && !path.poses.empty()) {
+    auto & goal_orientation = path.poses.back().pose.orientation;
+    goal_orientation.x = 0.0;
+    goal_orientation.y = 0.0;
+    goal_orientation.z = std::sin(candidate.yaw * 0.5);
+    goal_orientation.w = std::cos(candidate.yaw * 0.5);
+  }
+
   const auto finished = std::chrono::steady_clock::now();
   RCLCPP_INFO(
     logger_,
@@ -1964,7 +2535,7 @@ void FaelFrontierCore::publishSelection(
     header.frame_id = frame_id_;
     safePublish(
       selected_candidate_pub_, makePose(
-        selected.point,
+        selected,
         header), logger_, "selected_candidate");
   }
 }

@@ -1,0 +1,102 @@
+# ============================================================================
+# fael_exploration_bt_navigator_zsl1_house2_matrix.yaml
+#   MATRiX · xgb(zsl1) 四足 · house2 住宅 · 自主探索 BT 运行器参数
+#
+# 对应主参数: navflex_bringup/params/nav2_params_zsl1_house2_matrix.yaml
+#
+# 与 fael_exploration_bt_navigator.yaml 的差异（仅 MATRiX 适配，不含随意调参）：
+#   1) odom_topic : odom -> /odom/mujoco_odom      (MATRiX 里程计)
+#   2) use_sim_time: true -> false                 (MATRiX 不发 /clock)
+#   3) 服务等待/响应超时放宽                        (Zenoh 跨容器发现比本地 DDS 慢得多)
+#   4) goal_frame 显式写成 map                      (避免空 frame -> 52/53 INVALID_GOAL)
+#
+# ★ 注意：下列 4 个参数由 launch 用【覆盖字典】传入，优先级高于本文件，
+#   写在这里【不生效】，不要在此设置：
+#       use_sim_time / bt_xml / start_topic / stop_topic
+#   （见 fael_exploration.launch.py: parameters=[bt_params_file, {覆盖字典}]）
+#   本文件里的 use_sim_time 仅作占位与自文档；实际以命令行 use_sim_time:=false 为准。
+#
+# 启动：
+#   ros2 launch navflex_bringup navflex_bringup_launch.py \
+#       navigation_type:=costmap chassis_model:=omni use_bt_navigator:=false \
+#       params_file:=/workspace/navflex/navflex_bringup/params/nav2_params_zsl1_house2_matrix.yaml \
+#       use_sim_time:=false
+#
+#   ros2 launch navflex_autonomous_exploration_bt fael_exploration.launch.py \
+#       bt_params_file:=/workspace/navflex/navflex_autonomous_exploration_bt/params/fael_exploration_bt_navigator_zsl1_house2_matrix.yaml \
+#       use_sim_time:=false
+#
+#   ros2 topic pub --once /exploration/start std_msgs/msg/Empty "{}"
+# ============================================================================
+
+# ---------------------------------------------------------------------------
+# nav2 自带的 bt_navigator。
+# 探索模式下 navflex_bringup_launch.py 传 use_bt_navigator:=false，本节点不启动；
+# 这里保留配置，便于临时切回点到点导航（use_bt_navigator:=true）时直接可用。
+# ---------------------------------------------------------------------------
+bt_navigator:
+  ros__parameters:
+    use_sim_time: false                # MATRiX 不发 /clock（实际由 launch 覆盖）
+    global_frame: map
+    robot_base_frame: base_link
+    odom_topic: /odom/mujoco_odom      # [MATRiX] 里程计
+    bt_loop_duration: 10               # ms, BT tick 周期 (100 Hz)
+    # [MATRiX] Zenoh 跨容器(nav <-> matrix0019)发现比本地 DDS 慢，
+    #          1000ms 常常等不到 action server，抬到 5000/10000 更稳。
+    default_server_timeout: 5000       # ms, BT action 节点默认超时
+    wait_for_service_timeout: 10000    # ms, 启动时等待 action/service 上线
+    default_nav_to_pose_bt_xml: ''
+    default_nav_through_poses_bt_xml: ''
+    plugin_lib_names:
+      - nav2_clear_costmap_service_bt_node
+      - nav2_goal_updated_condition_bt_node
+      - nav2_rate_controller_bt_node
+      - nav2_recovery_node_bt_node
+      - nav2_round_robin_node_bt_node
+      - nav2_pipeline_sequence_bt_node
+      - navflex_get_path_action
+      - navflex_exe_path_action
+      - navflex_recovery_action
+
+# ---------------------------------------------------------------------------
+# 独立的探索 BT 运行器（探索模式下真正干活的节点）。
+# 它循环跑 fael_frontier_exploration.xml：
+#     RateController(0.2Hz) -> NavflexGetPathAction(planner_id=FrontierAStar)
+#                           -> NavflexExePathAction(controller_id=FollowPath)
+# 收到 /exploration/start 才开始，/exploration/stop 停止。
+# ---------------------------------------------------------------------------
+exploration_bt_navigator:
+  ros__parameters:
+    use_sim_time: false                # MATRiX 不发 /clock（实际由 launch 覆盖）
+    global_frame: map
+    robot_base_frame: base_link
+    odom_topic: /odom/mujoco_odom      # [MATRiX] 里程计
+    bt_loop_duration: 10               # ms, BT tick 周期 (100 Hz)
+
+    # [MATRiX] 同上：Zenoh 发现慢。注意 BT XML 里 NavflexGetPathAction 显式写了
+    #          server_timeout="5000"，会覆盖 default_server_timeout；
+    #          这里主要是给未显式指定超时的节点兜底。
+    default_server_timeout: 5000       # ms
+    wait_for_service_timeout: 10000    # ms
+
+    # 探索时 FrontierAStar 自己选目标，代码里 requested_goal 被直接忽略
+    # (frontier_tools.cpp: `(void) requested_goal;`)，所以 goal_x/y/yaw 只是占位。
+    # 但 goal_frame 必须是合法 frame，否则 PoseStamped 的 header 为空 ->
+    # 规划器返回 52/53 INVALID_START/GOAL。
+    goal_frame: map
+    goal_x: 0.0
+    goal_y: 0.0
+    goal_yaw: 0.0
+
+    default_nav_to_pose_bt_xml: ''
+    default_nav_through_poses_bt_xml: ''
+    plugin_lib_names:
+      - nav2_clear_costmap_service_bt_node
+      - nav2_goal_updated_condition_bt_node
+      - nav2_rate_controller_bt_node
+      - nav2_recovery_node_bt_node
+      - nav2_round_robin_node_bt_node
+      - nav2_pipeline_sequence_bt_node
+      - navflex_get_path_action
+      - navflex_exe_path_action
+      - navflex_recovery_action

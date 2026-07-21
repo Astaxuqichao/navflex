@@ -16,7 +16,25 @@ def launch_setup(context, *args, **kwargs):
     if semantic_params_file:
         semantic_parameters.append(semantic_params_file)
 
-    return [
+    world_model_enabled = LaunchConfiguration('world_model_enabled').perform(context)
+    world_model_nodes = []
+    if world_model_enabled.lower() in ('true', '1', 'yes'):
+        world_model_nodes.append(Node(
+            package='navflex_world_model',
+            executable='navflex_world_model_node.py',
+            name='navflex_world_model',
+            output='screen',
+            parameters=[{
+                'global_frame': LaunchConfiguration('global_frame'),
+                'planner_id': LaunchConfiguration('planner_id'),
+                'backend': LaunchConfiguration('world_model_backend'),
+                'critic': LaunchConfiguration('world_model_critic'),
+                'lingbot_url': LaunchConfiguration('lingbot_url'),
+                'image_topic': LaunchConfiguration('image_topic'),
+            }],
+        ))
+
+    return world_model_nodes + [
         Node(
             package='navflex_instruction_server',
             executable='navflex_instruction_server_node.py',
@@ -48,6 +66,7 @@ def launch_setup(context, *args, **kwargs):
             parameters=[{
                 'action_timeout': LaunchConfiguration('action_timeout'),
                 'default_execute': LaunchConfiguration('default_execute'),
+                'world_model_enabled': LaunchConfiguration('world_model_enabled'),
                 'use_semantic_map': LaunchConfiguration('enable_semantic_map'),
             }],
         ),
@@ -81,5 +100,13 @@ def generate_launch_description():
         DeclareLaunchArgument(
             'semantic_params_file',
             default_value=default_semantic_params),
+        # World-model gate: off by default. Turning it on without a critic makes
+        # every navigation task require confirmation, which is the safe failure
+        # but not a useful one.
+        DeclareLaunchArgument('world_model_enabled', default_value='false'),
+        DeclareLaunchArgument('world_model_backend', default_value='null'),
+        DeclareLaunchArgument('world_model_critic', default_value='null'),
+        DeclareLaunchArgument('lingbot_url', default_value='http://127.0.0.1:8100'),
+        DeclareLaunchArgument('image_topic', default_value='/image_raw/compressed'),
         OpaqueFunction(function=launch_setup),
     ])

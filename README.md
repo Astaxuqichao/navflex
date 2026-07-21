@@ -6,19 +6,19 @@ Navflex 是基于 ROS 2 Humble 和 Nav2 的导航扩展包集合。它把 costma
 
 ## 包功能
 
-| 包名 | 功能 |
-| --- | --- |
-| `navflex_bringup` | 统一启动包，维护 launch、地图、参数、RViz 配置；提供本地仿真、TB3 manipulation Gazebo 仿真和 Navflex 导航栈启动入口 |
-| `navflex_nav` | 核心导航服务端；在一个 lifecycle 节点内管理 global/local costmap，并提供 `/compute_path_to_pose`、`/follow_path`、`/behavior_action` |
-| `navflex_bt_navigator` | BT Navigator 封装包，提供 Navflex 默认行为树 XML 和 BT Navigator 参数 |
-| `navflex_bt_nodes` | 自定义 BT 节点，包括 GetPath、ExePath、Recovery；`NavflexExePathAction` 支持运行中路径更新和 FollowPath 容差传递 |
-| `navflex_cmdbehavior` | Nav2 behavior 插件，提供 `rotate`、`linear`、`wait` 等简单恢复/动作命令 |
-| `navflex_exclusion_zone` | Nav2 costmap 电子禁区层插件，可通过话题动态标记禁行区域 |
-| `navflex_instruction_server` | 文本指令、语义地图、任务服务和 VLN/VLM 桥接入口 |
-| `navflex_utility` | 公共工具库，提供机器人状态、TF/odom 查询和导航辅助函数 |
-| `omni_fake_node` | 本地全向虚拟机器人，订阅 `/cmd_vel`，发布 `/odom`、TF 和本地仿真 `/clock` |
-| `simulation_lidar` | 基于 OccupancyGrid 地图射线投射的 2D 仿真激光雷达，发布 `/scan` 和 `/scan_cloud` |
-| `rcl_logging_spdlog_rotating` | 自定义 ROS 2 spdlog 滚动日志后端 |
+| 包名                            | 功能                                                                                                                                      |
+| ------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------- |
+| `navflex_bringup`             | 统一启动包，维护 launch、地图、参数、RViz 配置；提供本地仿真、TB3 manipulation Gazebo 仿真和 Navflex 导航栈启动入口                       |
+| `navflex_nav`                 | 核心导航服务端；在一个 lifecycle 节点内管理 global/local costmap，并提供`/compute_path_to_pose`、`/follow_path`、`/behavior_action` |
+| `navflex_bt_navigator`        | BT Navigator 封装包，提供 Navflex 默认行为树 XML 和 BT Navigator 参数                                                                     |
+| `navflex_bt_nodes`            | 自定义 BT 节点，包括 GetPath、ExePath、Recovery；`NavflexExePathAction` 支持运行中路径更新和 FollowPath 容差传递                        |
+| `navflex_cmdbehavior`         | Nav2 behavior 插件，提供`rotate`、`linear`、`wait` 等简单恢复/动作命令                                                              |
+| `navflex_exclusion_zone`      | Nav2 costmap 电子禁区层插件，可通过话题动态标记禁行区域                                                                                   |
+| `navflex_instruction_server`  | 文本指令、语义地图、任务服务和 VLN/VLM 桥接入口                                                                                           |
+| `navflex_utility`             | 公共工具库，提供机器人状态、TF/odom 查询和导航辅助函数                                                                                    |
+| `omni_fake_node`              | 本地全向虚拟机器人，订阅`/cmd_vel`，发布 `/odom`、TF 和本地仿真 `/clock`                                                            |
+| `simulation_lidar`            | 基于 OccupancyGrid 地图射线投射的 2D 仿真激光雷达，发布`/scan` 和 `/scan_cloud`                                                       |
+| `rcl_logging_spdlog_rotating` | 自定义 ROS 2 spdlog 滚动日志后端                                                                                                          |
 
 ## navflex_nav 设计
 

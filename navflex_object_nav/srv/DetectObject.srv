@@ -1,0 +1,23 @@
+# Ask a VLM whether a named target object is visible in the robot's latest REAL
+# camera frame, and if so roughly where in the image (for LIDAR-backed ranging
+# in the approach phase). This is object GROUNDING: text description -> where in
+# the sensor world. Runs on one live ego-view frame, NOT an imagined rollout.
+string target          # e.g. "书架旁的绿色盆栽" (object + optional landmark)
+---
+bool ok                # whether the detection CALL ran (false = no fresh image / VLM error)
+bool visible           # whether the target object is clearly visible in the frame
+float64 confidence     # 0..1
+
+# Image position of the target centre (valid only when visible):
+#   x_frac 0.0=left edge .. 1.0=right edge ; y_frac 0.0=top .. 1.0=bottom
+float64 x_frac
+float64 y_frac
+
+# Bearing to the target in base_link convention (+left / counter-clockwise),
+# derived by the grounder node from x_frac and the camera FOV:
+#   bearing = (0.5 - x_frac) * camera_fov
+float64 bearing_rad
+float64 bearing_deg
+
+string notes           # short natural-language reason / what the VLM saw
+string raw_json        # full VLM JSON, for debugging

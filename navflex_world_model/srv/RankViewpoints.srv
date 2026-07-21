@@ -1,0 +1,17 @@
+# Phase A director: rank candidate frontier viewpoints by how likely each heads
+# toward a named target. For each candidate the world model imagines a short
+# rollout of driving there (from the robot's current frame), and a "director"
+# critic scores the imagined view for "does this direction lead toward {target}?"
+# (room type / doorway / corridor cues — the target itself may not be visible yet).
+#
+# The metric decision (where the target actually is) stays with the grounder +
+# LIDAR in phase B; this only steers WHICH way to explore next.
+string target
+geometry_msgs/PoseStamped[] candidates   # candidate viewpoint poses to rank
+int32 frame_num                            # rollout length (0 = auto-size from each plan)
+---
+bool ok                                    # whether any candidate got a real rollout + score
+int32 best_index                           # index into candidates (-1 = could not rank)
+float64[] scores                           # per-candidate 0..1 "heads toward target" (-1 = no rollout)
+string[] reasons                           # per-candidate one-line reason
+string message

@@ -1,0 +1,30 @@
+<?xml version="1.0"?>
+<?xml-model href="http://download.ros.org/schema/package_format3.xsd" schematypens="http://www.w3.org/2001/XMLSchema"?>
+<package format="3">
+  <name>navflex_wm_bt_nodes</name>
+  <version>0.1.0</version>
+  <description>
+    World-model BehaviorTree.CPP v3 plugin nodes for navflex frontier
+    exploration. Adds a per-candidate go/no-go gate that runs the FrontierAStar
+    planner's top viewpoint through the forward-dynamics world model + VLM
+    critic (navflex_world_model/evaluate), plus a helper that extracts a path's
+    endpoint as the goal pose. Kept in a SEPARATE package so the original
+    exploration framework (navflex_bt_nodes, navflex_autonomous_exploration_bt)
+    carries no dependency on the world model.
+  </description>
+  <maintainer email="bzjiang94w@gmail.com">navflex</maintainer>
+  <license>Apache-2.0</license>
+
+  <buildtool_depend>ament_cmake</buildtool_depend>
+
+  <depend>rclcpp</depend>
+  <depend>nav2_behavior_tree</depend>
+  <depend>nav_msgs</depend>
+  <depend>geometry_msgs</depend>
+  <depend>behaviortree_cpp_v3</depend>
+  <depend>navflex_world_model</depend>
+
+  <export>
+    <build_type>ament_cmake</build_type>
+  </export>
+</package>

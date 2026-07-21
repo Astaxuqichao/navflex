@@ -1,0 +1,12 @@
+{
+  "blocked": {
+    "bag_frame": 6840,
+    "clearance_m": 0.91,
+    "path": "/home/jiangbz/project/world_model/nav/navflex/navflex_world_model/test/data/seed_blocked.jpg"
+  },
+  "open": {
+    "bag_frame": 400,
+    "clearance_m": 8.99,
+    "path": "/home/jiangbz/project/world_model/nav/navflex/navflex_world_model/test/data/seed_open.jpg"
+  }
+}

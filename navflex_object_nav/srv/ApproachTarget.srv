@@ -1,0 +1,27 @@
+# Phase B (approaching): the target is (or should be) visible now. Detect it,
+# range it with the forward LIDAR along the detected bearing, compute an approach
+# pose ~approach_distance in front of it, optionally have the world model verify
+# the approach is safe, then (unless dry_run) drive there with point-to-point nav.
+string target
+float64 approach_distance   # metres to stop in front of the target (0 = node default)
+bool dry_run                # compute target + approach pose but do NOT drive
+bool skip_verify            # skip the world-model safety gate on the approach
+---
+bool found                  # target detected AND ranged
+bool visible                # grounder saw it
+float64 confidence
+float64 bearing_deg          # from the grounder (base_link, +left)
+float64 range_m              # LIDAR range along that bearing (0 if no return)
+int32 lidar_support          # how many LIDAR points backed the range estimate
+
+# Target and approach pose, in the map frame:
+float64 target_x
+float64 target_y
+float64 approach_x
+float64 approach_y
+float64 approach_yaw
+
+bool verified               # world-model gate approved (or true when skipped)
+string verify_reason
+bool driven                 # a drive was issued and it arrived
+string message

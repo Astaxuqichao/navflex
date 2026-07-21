@@ -1,0 +1,52 @@
+# ============================================================================
+# fael_exploration_bt_navigator_zsl1_house2_matrix_wm_gate.yaml
+#   MATRiX · xgb · house2 · 前沿探索 + 【世界模型视点闸门】版 bt_navigator 参数
+#
+# 与 fael_exploration_bt_navigator_zsl1_house2_matrix.yaml【逐字相同】, 只有一处不同:
+#   plugin_lib_names 末尾多加了一行  - navflex_wm_bt_nodes
+#   (该 .so 提供 NavflexEvaluatePlanAction 和 NavflexPathEndPose 两个节点)
+#
+# 原文件保持不动。这个新文件配套:
+#   behavior_trees/fael_frontier_exploration_zsl1_house2_matrix_wm_gate.xml
+#
+# 用法(见 docs/world_model_viewpoint_gate.md 的完整配方):
+#   ros2 launch navflex_autonomous_exploration_bt fael_exploration.launch.py \
+#     bt_params_file:=/workspace/navflex/navflex_autonomous_exploration_bt/params/fael_exploration_bt_navigator_zsl1_house2_matrix_wm_gate.yaml \
+#     default_nav_to_pose_bt_xml:=/workspace/navflex/navflex_autonomous_exploration_bt/behavior_trees/fael_frontier_exploration_zsl1_house2_matrix_wm_gate.xml \
+#     use_sim_time:=false
+# ============================================================================
+exploration_bt_navigator:
+  ros__parameters:
+    use_sim_time: false                # MATRiX 不发 /clock（实际由 launch 覆盖）
+    global_frame: map
+    robot_base_frame: base_link
+    odom_topic: /odom/mujoco_odom      # [MATRiX] 里程计
+    bt_loop_duration: 10               # ms, BT tick 周期 (100 Hz)
+
+    # [MATRiX] Zenoh 发现慢。BT XML 里各 Action 已显式写 server_timeout, 会覆盖此项;
+    #          这里主要给未显式指定超时的节点兜底。
+    #   ⚠️ 世界模型闸门 NavflexEvaluatePlanAction 在 XML 里显式写了 server_timeout="900000",
+    #      因为 rollout 要几分钟, 绝不能用这个 5000ms 的兜底值(会造成假否决)。
+    default_server_timeout: 5000       # ms
+    wait_for_service_timeout: 10000    # ms
+
+    # 探索时 FrontierAStar 自己选目标, requested_goal 被忽略, 故 goal_* 只是占位。
+    # 但 goal_frame 必须合法, 否则 PoseStamped header 为空 -> 规划器返回 52/53。
+    goal_frame: map
+    goal_x: 0.0
+    goal_y: 0.0
+    goal_yaw: 0.0
+
+    default_nav_to_pose_bt_xml: ''
+    default_nav_through_poses_bt_xml: ''
+    plugin_lib_names:
+      - nav2_clear_costmap_service_bt_node
+      - nav2_goal_updated_condition_bt_node
+      - nav2_rate_controller_bt_node
+      - nav2_recovery_node_bt_node
+      - nav2_round_robin_node_bt_node
+      - nav2_pipeline_sequence_bt_node
+      - navflex_get_path_action
+      - navflex_exe_path_action
+      - navflex_recovery_action
+      - navflex_wm_bt_nodes          # ★ 新增: 世界模型视点闸门 + 路径末点取位姿

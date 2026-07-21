@@ -1,0 +1,22 @@
+# Ask the world model to imagine executing a plan, then judge the result.
+#
+# The gate plans with compute_path_to_pose but never executes: it converts the
+# plan into a camera trajectory, rolls the world model forward along it, and
+# hands the imagined video to a critic. Callers use `verdict` to decide whether
+# to run the plan for real.
+geometry_msgs/PoseStamped goal
+string instruction
+string task_json
+bool dry_run
+int32 frame_num
+---
+# success reports whether the gate itself ran, not whether the plan is safe.
+bool success
+# approve | reject | needs_confirmation | unavailable
+string verdict
+float64 confidence
+string reason
+string rollout_uri
+string critic_json
+string[] steps
+builtin_interfaces/Duration elapsed_time

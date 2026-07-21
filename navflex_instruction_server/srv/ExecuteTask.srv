@@ -6,6 +6,10 @@ string task_json
 bool execute
 bool dry_run
 bool require_confirmation
+# Bypass the world-model gate for this call. The gate blocks execution on
+# 'reject' and on 'needs_confirmation'; an operator who has reviewed the
+# imagined rollout sets this to run the plan anyway.
+bool skip_world_model
 ---
 bool success
 bool accepted
@@ -15,4 +19,8 @@ string command_type
 string normalized_command
 string message
 string[] steps
+# approve | reject | needs_confirmation | skipped | disabled | not_evaluated
+string world_model_verdict
+string world_model_reason
+string world_model_rollout_uri
 builtin_interfaces/Duration elapsed_time
