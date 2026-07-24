@@ -1,0 +1,33 @@
+<?xml version="1.0"?>
+<?xml-model href="http://download.ros.org/schema/package_format3.xsd" schematypens="http://www.w3.org/2001/XMLSchema"?>
+<package format="3">
+  <name>navflex</name>
+  <version>0.0.0</version>
+  <description>Metapackage for the Navflex navigation stack.</description>
+  <maintainer email="xuqichao66@outlook.com">root</maintainer>
+  <license>Apache-2.0</license>
+
+  <buildtool_depend>ament_cmake</buildtool_depend>
+
+  <exec_depend>navflex_autonomous_exploration_bt</exec_depend>
+  <exec_depend>navflex_bringup</exec_depend>
+  <exec_depend>navflex_bt_navigator</exec_depend>
+  <exec_depend>navflex_bt_nodes</exec_depend>
+  <exec_depend>navflex_cmdbehavior</exec_depend>
+  <exec_depend>navflex_exclusion_zone</exec_depend>
+  <exec_depend>navflex_frontier_planner</exec_depend>
+  <exec_depend>navflex_instruction_server</exec_depend>
+  <exec_depend>navflex_nav</exec_depend>
+  <exec_depend>navflex_rog_map</exec_depend>
+  <exec_depend>navflex_rogmap_core</exec_depend>
+  <exec_depend>navflex_rogmap_planner</exec_depend>
+  <exec_depend>navflex_utility</exec_depend>
+  <exec_depend>omni_fake_node</exec_depend>
+  <exec_depend>rcl_logging_spdlog_rotating</exec_depend>
+  <exec_depend>scan_planner</exec_depend>
+  <exec_depend>simulation_lidar</exec_depend>
+
+  <export>
+    <build_type>ament_cmake</build_type>
+  </export>
+</package>

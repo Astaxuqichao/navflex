@@ -13,6 +13,19 @@ ROS 2/Navflex integration of the HKU MaRS Lab ROG-Map algorithms.
   collision checks shared by planners and controllers.
 - Server: lifecycle node consuming `sensor_msgs/PointCloud2` and TF.
 
+## Global/local query model
+
+The persistent global grid is the source for global A* occupancy, inflation,
+unknown-space policy, and pose-aware footprint collision checks. Global
+collision checks use bounded sparse-voxel neighborhoods rather than scanning
+the complete map.
+
+The original high-resolution ROG sliding map remains the source for local
+control and local collision avoidance. ESDF queries use the original ROG ESDF
+inside the local window and fall back to a truncated nearest-obstacle distance
+and gradient from the persistent global grid outside it. `esdf_max_distance`
+sets the truncation distance for both query paths.
+
 ## Nav2-style loading
 
 `RogMapROS` follows the `nav2_costmap_2d::Costmap2DROS` ownership model. It can

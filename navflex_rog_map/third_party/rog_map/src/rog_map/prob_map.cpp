@@ -26,11 +26,10 @@ using namespace rog_map;
 using namespace super_utils;
 
 void ProbMap::initProbMap() {
-    static bool init_once{false};
-    if (init_once) {
+    if (had_been_initialized_) {
         throw std::runtime_error(" -- [ROGMap] ProbMap can only init once.");
     }
-    init_once = true;
+    had_been_initialized_ = true;
     initSlidingMap(cfg_.half_map_size_i, cfg_.resolution,
                    cfg_.map_sliding_en, cfg_.map_sliding_thresh,
                    cfg_.fix_map_origin);

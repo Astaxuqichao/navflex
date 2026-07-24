@@ -75,12 +75,17 @@ public:
   bool worldToGrid(const geometry_msgs::msg::Point &, Index3D &) const;
   geometry_msgs::msg::Point gridToWorld(const Index3D &) const;
   OccupancyState state(const Index3D &) const; float probability(const Index3D &) const;
+  OccupancyState globalState(const geometry_msgs::msg::Point &) const;
+  OccupancyState globalInflatedState(const geometry_msgs::msg::Point &) const;
   OccupancyState localState(const geometry_msgs::msg::Point &) const;
   OccupancyState inflatedState(const geometry_msgs::msg::Point &) const;
   bool isFrontier(const geometry_msgs::msg::Point &) const;
   bool isCollisionFree(const geometry_msgs::msg::Point &, double radius) const;
   bool isCollisionFree(
     const geometry_msgs::msg::Pose &, const Footprint3D & footprint) const;
+  bool isGlobalCollisionFree(
+    const geometry_msgs::msg::Pose &, const Footprint3D & footprint,
+    bool unknown_as_obstacle = false) const;
   bool raycastFree(
     const geometry_msgs::msg::Point &, const geometry_msgs::msg::Point &,
     double radius) const;
@@ -100,6 +105,15 @@ private:
   friend class OfficialRogMap;
   struct Cell {float log_odds{0.0F};};
   static int64_t key(const Index3D &); static double logit(double);
+  static Index3D indexFromKey(int64_t);
+  bool insideLocalMap(const geometry_msgs::msg::Point &) const;
+  OccupancyState globalStateUnlocked(const geometry_msgs::msg::Point &) const;
+  OccupancyState globalInflatedStateUnlocked(const geometry_msgs::msg::Point &) const;
+  bool globalDistanceUnlocked(
+    const geometry_msgs::msg::Point &, double &, geometry_msgs::msg::Vector3 * = nullptr) const;
+  bool isGlobalCollisionFreeUnlocked(
+    const geometry_msgs::msg::Point &, double, bool unknown_as_obstacle) const;
+  void updateGlobalCell(int64_t, bool);
   bool shouldUpdateLocal(unsigned int flags) const;
   bool shouldObserveGlobal(unsigned int flags, const geometry_msgs::msg::Point &) const;
   bool beginGlobalRay(const geometry_msgs::msg::Point &, bool);
@@ -108,6 +122,7 @@ private:
   RogMapConfig config_; mutable std::shared_mutex mutex_;
   std::unordered_map<int64_t, Cell> global_cells_;
   std::unordered_set<int64_t> global_endpoint_voxels_;
+  std::unordered_set<int64_t> global_occupied_cells_;
   std::size_t loaded_pcd_points_{0};
   float hit_log_{0.0F}; float miss_log_{0.0F}; float min_log_{0.0F};
   float max_log_{0.0F}; float occupied_log_{0.0F}; std::atomic<uint64_t> revision_{0};

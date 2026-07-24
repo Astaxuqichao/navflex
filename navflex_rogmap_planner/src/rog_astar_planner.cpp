@@ -142,7 +142,8 @@ void RogAStarPlanner::configure(
     throw std::invalid_argument(name_ + ".heuristic_type must be 0, 1, or 2");
   }
   heuristic_type_ = static_cast<Heuristic>(heuristic_value);
-  resolution_ = use_inflated_map_ ? map_->localResolution() : map_->resolution();
+  // This global planner always searches the persistent global grid.
+  resolution_ = map_->resolution();
   inverse_resolution_ = 1.0 / resolution_;
 
   const size_t count = static_cast<size_t>(size_x_ * 2 + 1) *
@@ -308,7 +309,8 @@ bool RogAStarPlanner::isStateValid(const geometry_msgs::msg::Point & point) cons
   if (!map_->worldToGrid(point, index)) {
     return false;
   }
-  const auto state = use_inflated_map_ ? map_->inflatedState(point) : map_->localState(point);
+  const auto state = use_inflated_map_ ?
+    map_->globalInflatedState(point) : map_->globalState(point);
   if (state == navflex_rog_map::OccupancyState::OCCUPIED) {
     return false;
   }
@@ -318,7 +320,7 @@ bool RogAStarPlanner::isStateValid(const geometry_msgs::msg::Point & point) cons
   geometry_msgs::msg::Pose pose;
   pose.position = point;
   pose.orientation.w = 1.0;
-  return map_->isCollisionFree(pose, footprint_);
+  return map_->isGlobalCollisionFree(pose, footprint_, unknown_as_obstacle_);
 }
 
 bool RogAStarPlanner::insideSearchMap(const GridIndex & index) const

@@ -2,12 +2,15 @@
 
 Navflex 是基于 ROS 2 Humble 和 Nav2 的导航扩展包集合。它把 costmap、规划、控制、BT 行为树、自定义恢复行为、本地仿真和 TB3 manipulation Gazebo 仿真整理成一套可直接启动的导航工作区。
 
+![Navflex 导航演示](navflex/docs/assets/navflex_test_small.gif)
+
 更详细的启动参数和排查命令见 [navflex_bringup/README.md](navflex_bringup/README.md)。
 
 ## 包功能
 
 | 包名 | 功能 |
 | --- | --- |
+| `navflex` | Metapackage，聚合仓库内全部 Navflex 功能包，便于统一安装和构建 |
 | `navflex_bringup` | 统一启动包，维护 launch、地图、参数、RViz 配置；提供本地仿真、TB3 manipulation Gazebo 仿真和 Navflex 导航栈启动入口 |
 | `navflex_nav` | 核心导航服务端；在一个 lifecycle 节点内管理 global/local costmap，并提供 `/compute_path_to_pose`、`/follow_path`、`/behavior_action` |
 | `navflex_bt_navigator` | BT Navigator 封装包，提供 Navflex 默认行为树 XML 和 BT Navigator 参数 |
@@ -133,6 +136,14 @@ rosdep install --from-paths \
 cd ~/ros2/nav_ws
 source /opt/ros/humble/setup.bash
 colcon build --symlink-install --cmake-args -DCMAKE_BUILD_TYPE=Release
+source install/setup.bash
+```
+
+只构建 Navflex 及其依赖时，可通过 metapackage 选择整套功能包：
+
+```bash
+colcon build --packages-up-to navflex \
+  --symlink-install --cmake-args -DCMAKE_BUILD_TYPE=Release
 source install/setup.bash
 ```
 

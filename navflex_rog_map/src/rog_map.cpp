@@ -97,6 +97,20 @@ public:
     }
   }
 
+  void clear()
+  {
+    resetLocalMap();
+    inf_map_->resetLocalMap();
+    if (fcnt_map_) {
+      fcnt_map_->resetLocalMap();
+    }
+    if (esdf_map_) {
+      esdf_map_->resetLocalMap();
+    }
+    map_empty_ = true;
+    esdf_update_counter_ = 0;
+  }
+
 protected:
   bool shouldUpdateProbMap(const rog_map::PclPoint & point) const override
   {
@@ -174,11 +188,17 @@ RogMap::RogMap(RogMapConfig config)
             "hit_probability must be greater than occupied_threshold so one hit can create an "
             "occupied cell");
   }
-  if (config_.point_filter_num <= 0 || config_.global_point_filter_num <= 0 ||
+  if (config_.esdf_max_distance <= 0.0 || config_.inflation_resolution <= 0.0 ||
+    config_.inflation_step < 0 ||
+    config_.global_bounds.min_x >= config_.global_bounds.max_x ||
+    config_.global_bounds.min_y >= config_.global_bounds.max_y ||
+    config_.global_bounds.min_z >= config_.global_bounds.max_z ||
+    config_.point_filter_num <= 0 || config_.global_point_filter_num <= 0 ||
     config_.batch_update_size <= 0 || config_.esdf_update_interval <= 0 ||
     config_.map_sliding_threshold < 0.0)
   {
-    throw std::invalid_argument("ROG map filter, batch, and sliding parameters are invalid");
+    throw std::invalid_argument(
+            "ROG map bounds, distance, inflation, filter, batch, or sliding parameters are invalid");
   }
   if (config_.load_pcd && config_.pcd_file.empty()) {
     throw std::invalid_argument("pcd_file must be set when load_pcd is enabled");
@@ -219,6 +239,7 @@ RogMap::RogMap(RogMapConfig config)
         continue;
       }
       global_cells_[key(index)].log_odds = max_log_;
+      global_occupied_cells_.insert(key(index));
       ++loaded_pcd_points_;
     }
     official_map_->loadOccupiedCloud(cloud);
@@ -236,6 +257,12 @@ int64_t RogMap::key(const Index3D & i)
          (static_cast<int64_t>(i.z) + kOffset);
 }
 std::string RogMap::frameId() const {return config_.frame_id;}
+Index3D RogMap::indexFromKey(int64_t raw)
+{
+  return {static_cast<int>((raw >> 42) & kMask) - static_cast<int>(kOffset),
+    static_cast<int>((raw >> 21) & kMask) - static_cast<int>(kOffset),
+    static_cast<int>(raw & kMask) - static_cast<int>(kOffset)};
+}
 double RogMap::resolution() const {return config_.global_resolution;}
 double RogMap::localResolution() const {return config_.local_resolution;}
 Bounds3D RogMap::bounds() const {return config_.global_bounds;}
@@ -281,6 +308,54 @@ OccupancyState RogMap::state(const Index3D & i) const
   return p >= config_.occupied_threshold ? OccupancyState::OCCUPIED : OccupancyState::FREE;
 }
 
+OccupancyState RogMap::globalStateUnlocked(const geometry_msgs::msg::Point & point) const
+{
+  Index3D index;
+  if (!worldToGrid(point, index)) {
+    return OccupancyState::OCCUPIED;
+  }
+  const auto cell = global_cells_.find(key(index));
+  if (cell == global_cells_.end()) {
+    return OccupancyState::UNKNOWN;
+  }
+  return cell->second.log_odds >= occupied_log_ ?
+         OccupancyState::OCCUPIED : OccupancyState::FREE;
+}
+
+OccupancyState RogMap::globalState(const geometry_msgs::msg::Point & point) const
+{
+  std::shared_lock<std::shared_mutex> lock(mutex_);
+  return globalStateUnlocked(point);
+}
+
+OccupancyState RogMap::globalInflatedStateUnlocked(
+  const geometry_msgs::msg::Point & point) const
+{
+  const auto base_state = globalStateUnlocked(point);
+  if (base_state == OccupancyState::OCCUPIED) {
+    return base_state;
+  }
+  const double inflation_radius = config_.inflation_resolution * config_.inflation_step;
+  if (!isGlobalCollisionFreeUnlocked(point, inflation_radius, false)) {
+    return OccupancyState::OCCUPIED;
+  }
+  return base_state;
+}
+
+OccupancyState RogMap::globalInflatedState(const geometry_msgs::msg::Point & point) const
+{
+  std::shared_lock<std::shared_mutex> lock(mutex_);
+  return globalInflatedStateUnlocked(point);
+}
+
+bool RogMap::insideLocalMap(const geometry_msgs::msg::Point & point) const
+{
+  const auto origin = official_map_->getLocalMapOrigin();
+  const auto half_size = official_map_->getLocalMapSize() * 0.5;
+  return point.x >= origin.x() - half_size.x() && point.x < origin.x() + half_size.x() &&
+         point.y >= origin.y() - half_size.y() && point.y < origin.y() + half_size.y() &&
+         point.z >= origin.z() - half_size.z() && point.z < origin.z() + half_size.z();
+}
 OccupancyState RogMap::localState(const geometry_msgs::msg::Point & point) const
 {
   std::shared_lock<std::shared_mutex> lock(mutex_);
@@ -353,11 +428,21 @@ void RogMap::observeGlobalRayPoint(
   {
     return;
   }
+  updateGlobalCell(cell_key, is_hit);
+  last_global_ray_key_ = cell_key;
+  has_last_global_ray_key_ = true;
+}
+
+void RogMap::updateGlobalCell(int64_t cell_key, bool is_hit)
+{
   auto & cell = global_cells_[cell_key];
   cell.log_odds = std::clamp(
     cell.log_odds + (is_hit ? hit_log_ : miss_log_), min_log_, max_log_);
-  last_global_ray_key_ = cell_key;
-  has_last_global_ray_key_ = true;
+  if (cell.log_odds >= occupied_log_) {
+    global_occupied_cells_.insert(cell_key);
+  } else {
+    global_occupied_cells_.erase(cell_key);
+  }
 }
 
 void RogMap::endGlobalRay()
@@ -411,8 +496,12 @@ bool RogMap::distanceAt(const geometry_msgs::msg::Point & p, double & value) con
     return false;
   }
   std::shared_lock<std::shared_mutex> lock(mutex_);
-  value = official_map_->esdfDistance(rog_map::Vec3f(p.x, p.y, p.z));
-  return std::isfinite(value);
+  if (insideLocalMap(p)) {
+    value = official_map_->esdfDistance(rog_map::Vec3f(p.x, p.y, p.z));
+    value = std::min(value, config_.esdf_max_distance);
+    return std::isfinite(value);
+  }
+  return globalDistanceUnlocked(p, value);
 }
 bool RogMap::distanceAndGradientAt(
   const geometry_msgs::msg::Point & p, double & value, geometry_msgs::msg::Vector3 & gradient) const
@@ -423,8 +512,16 @@ bool RogMap::distanceAndGradientAt(
     return false;
   }
   std::shared_lock<std::shared_mutex> lock(mutex_);
+  if (!insideLocalMap(p)) {
+    return globalDistanceUnlocked(p, value, &gradient);
+  }
   Eigen::Vector3d eigen_gradient;
   official_map_->esdfDistanceAndGradient(Eigen::Vector3d(p.x, p.y, p.z), value, eigen_gradient);
+  if (value > config_.esdf_max_distance) {
+    value = config_.esdf_max_distance;
+    gradient = geometry_msgs::msg::Vector3();
+    return true;
+  }
   gradient.x = eigen_gradient.x(); gradient.y = eigen_gradient.y(); gradient.z = eigen_gradient.z();
   return std::isfinite(value) && eigen_gradient.allFinite();
 }
@@ -437,15 +534,113 @@ bool RogMap::secondGradientAt(
     return false;
   }
   std::shared_lock<std::shared_mutex> lock(mutex_);
+  if (!insideLocalMap(point)) {
+    double value;
+    geometry_msgs::msg::Vector3 first_gradient;
+    if (!globalDistanceUnlocked(point, value, &first_gradient)) {
+      gradient = geometry_msgs::msg::Vector3();
+      return false;
+    }
+    const double gradient_norm = std::abs(first_gradient.x) + std::abs(first_gradient.y) +
+      std::abs(first_gradient.z);
+    if (value <= 1e-9 || gradient_norm <= 1e-12) {
+      gradient = geometry_msgs::msg::Vector3();
+      return true;
+    }
+    gradient.x = (1.0 - first_gradient.x * first_gradient.x) / value;
+    gradient.y = (1.0 - first_gradient.y * first_gradient.y) / value;
+    gradient.z = (1.0 - first_gradient.z * first_gradient.z) / value;
+    return true;
+  }
   Eigen::Vector3d result;
   official_map_->esdfSecondGradient(Eigen::Vector3d(point.x, point.y, point.z), result);
   gradient.x = result.x(); gradient.y = result.y(); gradient.z = result.z();
   return result.allFinite();
 }
 
+bool RogMap::globalDistanceUnlocked(
+  const geometry_msgs::msg::Point & point, double & value,
+  geometry_msgs::msg::Vector3 * gradient) const
+{
+  Index3D query_index;
+  if (!worldToGrid(point, query_index)) {
+    value = 0.0;
+    if (gradient) {*gradient = geometry_msgs::msg::Vector3();}
+    return false;
+  }
+  double best_squared = config_.esdf_max_distance * config_.esdf_max_distance;
+  geometry_msgs::msg::Point nearest;
+  bool found = false;
+  for (const auto occupied_key : global_occupied_cells_) {
+    const auto occupied = gridToWorld(indexFromKey(occupied_key));
+    const double dx = point.x - occupied.x;
+    const double dy = point.y - occupied.y;
+    const double dz = point.z - occupied.z;
+    const double squared = dx * dx + dy * dy + dz * dz;
+    if (squared <= best_squared) {
+      best_squared = squared;
+      nearest = occupied;
+      found = true;
+    }
+  }
+  value = found ? std::sqrt(best_squared) : config_.esdf_max_distance;
+  if (gradient) {
+    *gradient = geometry_msgs::msg::Vector3();
+    if (found && value > 1e-9) {
+      gradient->x = (point.x - nearest.x) / value;
+      gradient->y = (point.y - nearest.y) / value;
+      gradient->z = (point.z - nearest.z) / value;
+    }
+  }
+  return true;
+}
+
+bool RogMap::isGlobalCollisionFreeUnlocked(
+  const geometry_msgs::msg::Point & point, double radius, bool unknown_as_obstacle) const
+{
+  const auto occupancy = globalStateUnlocked(point);
+  if (occupancy == OccupancyState::OCCUPIED ||
+    (unknown_as_obstacle && occupancy == OccupancyState::UNKNOWN))
+  {
+    return false;
+  }
+  Index3D center;
+  if (!worldToGrid(point, center)) {
+    return false;
+  }
+  const double voxel_padding = std::sqrt(3.0) * config_.global_resolution * 0.5;
+  const double collision_distance = radius + voxel_padding;
+  const double collision_distance_squared = collision_distance * collision_distance;
+  const int steps = static_cast<int>(
+    std::ceil(collision_distance / config_.global_resolution));
+  for (int dx = -steps; dx <= steps; ++dx) {
+    for (int dy = -steps; dy <= steps; ++dy) {
+      for (int dz = -steps; dz <= steps; ++dz) {
+        const Index3D candidate{center.x + dx, center.y + dy, center.z + dz};
+        if (global_occupied_cells_.count(key(candidate)) == 0) {
+          continue;
+        }
+        const auto occupied = gridToWorld(candidate);
+        const double offset_x = point.x - occupied.x;
+        const double offset_y = point.y - occupied.y;
+        const double offset_z = point.z - occupied.z;
+        if (offset_x * offset_x + offset_y * offset_y + offset_z * offset_z <=
+          collision_distance_squared)
+        {
+          return false;
+        }
+      }
+    }
+  }
+  return true;
+}
+
 bool RogMap::isCollisionFree(const geometry_msgs::msg::Point & p, double radius) const
 {
   std::shared_lock<std::shared_mutex> lock(mutex_);
+  if (!insideLocalMap(p)) {
+    return isGlobalCollisionFreeUnlocked(p, radius, config_.unknown_inflation);
+  }
   const rog_map::Vec3f point(p.x, p.y, p.z);
   if (official_map_->isOccupiedInflate(point) ||
     (config_.unknown_inflation && official_map_->isUnknownInflate(point)))
@@ -525,6 +720,78 @@ bool RogMap::isCollisionFree(
   return true;
 }
 
+bool RogMap::isGlobalCollisionFree(
+  const geometry_msgs::msg::Pose & pose, const Footprint3D & footprint,
+  bool unknown_as_obstacle) const
+{
+  validateFootprint(footprint);
+  tf2::Quaternion rotation(
+    pose.orientation.x, pose.orientation.y, pose.orientation.z, pose.orientation.w);
+  if (rotation.length2() < 1e-12) {
+    rotation.setValue(0.0, 0.0, 0.0, 1.0);
+  } else {
+    rotation.normalize();
+  }
+  const tf2::Transform transform(
+    rotation, tf2::Vector3(pose.position.x, pose.position.y, pose.position.z));
+  const auto world_point = [&transform](const geometry_msgs::msg::Vector3 & local) {
+      const tf2::Vector3 world = transform * tf2::Vector3(local.x, local.y, local.z);
+      geometry_msgs::msg::Point point;
+      point.x = world.x();
+      point.y = world.y();
+      point.z = world.z();
+      return point;
+    };
+  std::shared_lock<std::shared_mutex> lock(mutex_);
+  const auto point_is_free = [this, unknown_as_obstacle](
+    const geometry_msgs::msg::Point & point, double radius) {
+      return isGlobalCollisionFreeUnlocked(point, radius, unknown_as_obstacle);
+    };
+  if (footprint.type == FootprintType::SPHERE) {
+    return point_is_free(
+      world_point(footprint.offset), footprint.radius + footprint.safety_margin);
+  }
+  if (footprint.type == FootprintType::DOUBLE_SPHERE) {
+    return point_is_free(
+      world_point(footprint.front_sphere.offset),
+      footprint.front_sphere.radius + footprint.safety_margin) &&
+           point_is_free(
+      world_point(footprint.rear_sphere.offset),
+      footprint.rear_sphere.radius + footprint.safety_margin);
+  }
+  const double step = std::max(0.02, config_.global_resolution * 0.5);
+  if (footprint.type == FootprintType::CYLINDER) {
+    const int samples = std::max(1, static_cast<int>(std::ceil(footprint.height / step)));
+    for (int index = 0; index <= samples; ++index) {
+      geometry_msgs::msg::Vector3 local = footprint.offset;
+      local.z += -0.5 * footprint.height + footprint.height * index / samples;
+      if (!point_is_free(
+          world_point(local), footprint.radius + footprint.safety_margin))
+      {
+        return false;
+      }
+    }
+    return true;
+  }
+  const int count_x = std::max(1, static_cast<int>(std::ceil(footprint.size.x / step)));
+  const int count_y = std::max(1, static_cast<int>(std::ceil(footprint.size.y / step)));
+  const int count_z = std::max(1, static_cast<int>(std::ceil(footprint.size.z / step)));
+  for (int x = 0; x <= count_x; ++x) {
+    for (int y = 0; y <= count_y; ++y) {
+      for (int z = 0; z <= count_z; ++z) {
+        geometry_msgs::msg::Vector3 local = footprint.offset;
+        local.x += -0.5 * footprint.size.x + footprint.size.x * x / count_x;
+        local.y += -0.5 * footprint.size.y + footprint.size.y * y / count_y;
+        local.z += -0.5 * footprint.size.z + footprint.size.z * z / count_z;
+        if (!point_is_free(world_point(local), footprint.safety_margin)) {
+          return false;
+        }
+      }
+    }
+  }
+  return true;
+}
+
 bool RogMap::raycastFree(
   const geometry_msgs::msg::Point & a, const geometry_msgs::msg::Point & b,
   double radius) const
@@ -592,11 +859,7 @@ sensor_msgs::msg::PointCloud2 RogMap::occupiedCloud() const
       if (item.second.log_odds < occupied_log_) {
         continue;
       }
-      int64_t raw = item.first;
-      Index3D i{static_cast<int>((raw >>
-        42) & kMask) - static_cast<int>(kOffset),
-        static_cast<int>((raw >> 21) & kMask) - static_cast<int>(kOffset),
-        static_cast<int>(raw & kMask) - static_cast<int>(kOffset)};
+      const Index3D i = indexFromKey(item.first);
       points.push_back(gridToWorld(i));
     }
   }
@@ -637,6 +900,10 @@ void RogMap::reset()
 {
   std::unique_lock<std::shared_mutex> lock(mutex_);
   global_cells_.clear();
+  global_endpoint_voxels_.clear();
+  global_occupied_cells_.clear();
+  loaded_pcd_points_ = 0;
+  official_map_->clear();
   ++revision_;
 }
 }  // namespace navflex_rog_map

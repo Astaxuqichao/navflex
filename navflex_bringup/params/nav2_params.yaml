@@ -314,7 +314,7 @@ navflex_planner_server:
     use_sim_time: True
     planner_patience: 10.0       # seconds per single makePlan() call; abort if exceeded
     planner_max_retries: 10      # retry up to 10 times on quick failures
-    planner_plugins: ["GridBased", "Smac2D", "FrontierCandidate", "FrontierAStar"]
+    planner_plugins: ["GridBased", "Smac2D"]
     frontier_shared_config:
       frame_id: "map"
       point_cloud_topic: "/scan_cloud"

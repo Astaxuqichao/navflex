@@ -124,6 +124,7 @@ namespace rog_map {
         std::vector<float> occupancy_buffer_;
 
         bool map_empty_{true};
+        bool had_been_initialized_{false};
         struct RaycastData {
             raycaster::RayCaster raycaster;
             std::queue<Vec3i> update_cache_id_g;
